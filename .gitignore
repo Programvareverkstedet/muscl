@@ -9,6 +9,7 @@ result-*
 
 # Nix VM
 *.qcow2
+.nixos-test-history
 
 # Packaging
 !/assets/debian/config.toml

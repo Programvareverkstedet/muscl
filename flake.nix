@@ -6,9 +6,12 @@
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
 
     crane.url = "github:ipetkov/crane";
+
+    nix-vm-test.url = "github:numtide/nix-vm-test";
+    nix-vm-test.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, crane }:
+  outputs = { self, nixpkgs, rust-overlay, crane, nix-vm-test }:
   let
     inherit (nixpkgs) lib;
 
@@ -99,6 +102,8 @@
       muscl = import ./nix/module.nix;
     };
 
+    # vmlib = forAllSystems(system: _: _: nix-vm-test.lib.${system});
+
     packages = forAllSystems (system: pkgs: _:
       let
       cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
@@ -144,6 +149,8 @@
       filteredSource = pkgs.runCommandLocal "filtered-source" { } ''
         ln -s ${src} $out
       '';
+
+      debianVm = import ./nix/debian-vm-configuration.nix { inherit nix-vm-test nixpkgs system pkgs; };
     });
 
     checks = forAllSystems (system: pkgs: _: {
