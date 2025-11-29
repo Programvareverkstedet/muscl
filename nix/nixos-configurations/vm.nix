@@ -56,6 +56,25 @@ nixpkgs.lib.nixosSystem {
         enable = true;
         logLevel = "trace";
         createLocalDatabaseUser = true;
+        authHandler = ''
+          def process_request(
+              username: str,
+              groups: list[str],
+              resource_type: str,
+              resource: str,
+          ) -> bool:
+              if resource_type == "database":
+                  if resource.startswith(username) or any(
+                      resource.startswith(group) for group in groups
+                  ):
+                      return True
+              elif resource_type == "user":
+                  if resource.startswith(username) or any(
+                      resource.startswith(group) for group in groups
+                  ):
+                      return True
+              return False
+        '';
       };
 
       programs.vim = {

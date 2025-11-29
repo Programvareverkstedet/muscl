@@ -1,0 +1,53 @@
+[Unit]
+Description=Authorization daemon for Muscl
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/muscl_auth_daemon.py
+
+# WatchdogSec=15
+
+User=muscl
+Group=muscl
+DynamicUser=yes
+
+; ConfigurationDirectory=muscl
+; RuntimeDirectory=muscl
+
+; # This is required to read unix user/group details.
+; PrivateUsers=false
+
+; # Needed to communicate with MySQL.
+; PrivateNetwork=false
+; PrivateIPC=false
+
+; AmbientCapabilities=
+; CapabilityBoundingSet=
+; DeviceAllow=
+; DevicePolicy=closed
+; LockPersonality=true
+; MemoryDenyWriteExecute=true
+; NoNewPrivileges=true
+; PrivateDevices=true
+; PrivateMounts=true
+; PrivateTmp=yes
+; ProcSubset=pid
+; ProtectClock=true
+; ProtectControlGroups=strict
+; ProtectHome=true
+; ProtectHostname=true
+; ProtectKernelLogs=true
+; ProtectKernelModules=true
+; ProtectKernelTunables=true
+; ProtectProc=invisible
+; ProtectSystem=strict
+; RemoveIPC=true
+; RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+; RestrictNamespaces=true
+; RestrictRealtime=true
+; RestrictSUIDSGID=true
+; SocketBindDeny=any
+; SystemCallArchitectures=native
+; SystemCallFilter=@system-service
+; SystemCallFilter=~@privileged @resources
+; UMask=0777

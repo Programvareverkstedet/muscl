@@ -27,6 +27,31 @@ in
       }.${level};
     };
 
+    authHandler = lib.mkOption {
+      type = with lib.types; nullOr lines;
+      default = null;
+      description = "Custom authentication handler, written in python";
+      example = ''
+        def process_request(
+            username: str,
+            groups: list[str],
+            resource_type: str,
+            resource: str,
+        ) -> bool:
+            if resource_type == "database":
+                if resource.startswith(username) or any(
+                    resource.startswith(group) for group in groups
+                ):
+                    return True
+            elif resource_type == "user":
+                if resource.startswith(username) or any(
+                    resource.startswith(group) for group in groups
+                ):
+                    return True
+            return False
+      '';
+    };
+
     settings = lib.mkOption {
       default = { };
       type = lib.types.submodule {
@@ -189,6 +214,73 @@ in
 
         RestrictAddressFamilies = [ "AF_UNIX" ]
           ++ (lib.optionals (cfg.settings.mysql.host != null) [ "AF_INET" "AF_INET6" ]);
+      };
+    };
+
+    systemd.sockets."muscl-auth-daemon" = lib.mkIf (cfg.authHandler != null) {
+      description = "Authorization daemon for Muscl";
+      wantedBy = [ "sockets.target" ];
+      socketConfig = {
+        ListenStream = "/run/muscl/muscl-auth-daemon.sock";
+        Accept = "no";
+      };
+    };
+
+    systemd.services."muscl-auth-daemon" = lib.mkIf (cfg.authHandler != null) {
+      description = "Authorization daemon for Muscl";
+      requires = [ "muscl-auth-daemon.socket" ];
+      serviceConfig = {
+        Type = "notify";
+        ExecStart = let
+          authScript = lib.pipe ../examples/auth_daemon_python/muscl_auth_daemon.py [
+            lib.fileContents
+            (lib.replaceString ''
+              def process_request(
+                  username: str,
+                  groups: list[str],
+                  resource_type: str,
+                  resource: str,
+              ) -> bool:
+                  ...
+            '' cfg.authHandler)
+            (pkgs.writers.writePyPy3Bin "muscl-auth-handler.py" { })
+          ];
+        in lib.getExe authScript;
+
+        User = "muscl-auth-daemon";
+        Group = "muscl-auth-daemon";
+        DynamicUser = true;
+
+        AmbientCapabilities = [ "" ];
+        CapabilityBoundingSet = [ "" ];
+        DeviceAllow = [ "" ];
+        LockPersonality = true;
+        NoNewPrivileges = true;
+        PrivateDevices = true;
+        PrivateMounts = true;
+        PrivateTmp = "yes";
+        ProcSubset = "pid";
+        ProtectClock = true;
+        ProtectControlGroups = "strict";
+        ProtectHome = true;
+        ProtectHostname = true;
+        ProtectKernelLogs = true;
+        ProtectKernelModules = true;
+        ProtectKernelTunables = true;
+        ProtectProc = "invisible";
+        ProtectSystem = "strict";
+        RemoveIPC = true;
+        UMask = "0777";
+        RestrictNamespaces = true;
+        RestrictRealtime = true;
+        RestrictSUIDSGID = true;
+        SystemCallArchitectures = "native";
+        SocketBindDeny = [ "any" ];
+        SystemCallFilter = [
+          "@system-service"
+          "~@privileged"
+          "~@resources"
+        ];
       };
     };
   };

@@ -1,0 +1,8 @@
+[Unit]
+Description=Authorization daemon for Muscl
+WantedBy=sockets.target
+
+[Socket]
+ListenStream=/run/muscl/muscl-auth-daemon.socket
+Accept=no
+SocketMode=0660
