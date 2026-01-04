@@ -7,7 +7,7 @@ Dropping DBs (dumbbells) and having MySQL spasms since 2024
 
 ## What is this?
 
-`muscl is a secure MySQL administration tool for multi-user systems.
+`muscl` is a secure MySQL administration tool for multi-user systems.
 It allows unprivileged users to manage their own databases and database users without granting them direct access to the MySQL server.
 Authorization is handled by a prefix-based model tied to Unix users and groups, making it ideal for shared hosting environments, like university servers, tilde servers, or similar.
 
@@ -53,3 +53,12 @@ over a IPC, which then performs the requested operations on behalf of the client
 - [Compatibility mode with mysql-admutils](docs/mysql-admutils-compatibility.md)
 - [Use with NixOS](docs/nixos.md)
 - [SUID/SGID mode](docs/suid-sgid-mode.md)
+
+## History
+
+This is a rewrite of an older piece of software called [mysql-admutils](https://git.pvv.ntnu.no/Projects/mysql-admutils).
+Programvareverkstedet used this a lot back in the day, and it was great.
+But it had some security issues inherent to the software design, particularly related to the use of SUID/SGID.
+We tried patching it multiple times, but the issue kept popping up again in different ways.
+The rewrite was intended to iron this issue out completely by splitting the software into two pieces - a client and a server.
+As far as we know, this was successful, and it is unlikely for similar issues to resurface in the future.
