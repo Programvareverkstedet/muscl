@@ -42,9 +42,9 @@ in
 
           authorization = {
              group_denylist = lib.mkOption {
-               type = with lib.types; nullOr (listOf str);
+               type = with lib.types; nullOr (listOf (either str ints.unsigned));
                default = [ "wheel" ];
-               description = "List of groups that are denied access";
+               description = "List of groups/GIDs that can not be used as prefixes for databases/database users";
              };
           };
 
@@ -110,7 +110,32 @@ in
     ];
 
     environment.etc."muscl/group-denylist" = lib.mkIf (cfg.settings.authorization.group_denylist != [ ]) {
-      text = lib.concatMapStringsSep "\n" (group: "group:${group}") cfg.settings.authorization.group_denylist;
+      text = let
+        nameToGidMapping = lib.pipe config.users.groups [
+          (lib.filterAttrs (_: group: group.gid != null))
+          (lib.mapAttrsToList (name: group: { name = name; value = group.gid; }))
+          lib.listToAttrs
+        ];
+
+        gidToNameMapping = lib.pipe config.users.groups [
+          (lib.filterAttrs (_: group: group.gid != null))
+          (lib.mapAttrsToList (name: group: { name = toString group.gid; value = name; }))
+          lib.listToAttrs
+        ];
+      in lib.pipe cfg.settings.authorization.group_denylist [
+        # Prefer GIDs for groups we know the GID
+        (map (group: if builtins.isString group
+          then (nameToGidMapping.${group} or group)
+          else group))
+
+        # Then render back to strings
+        (map (group:
+           if builtins.isString group
+             then "group:${group}"
+             else "gid:${toString group} # ${gidToNameMapping.${toString group} or "unknown"}"))
+
+        (lib.concatStringsSep "\n")
+      ];
     };
 
     services.mysql.ensureUsers = lib.mkIf cfg.createLocalDatabaseUser [
