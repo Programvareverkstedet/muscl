@@ -25,6 +25,7 @@ bincode = "2.0.1"
 clap = { version = "4.5.53", features = ["cargo", "derive"] }
 clap-verbosity-flag = { version = "3.0.4", features = [ "tracing" ] }
 clap_complete = { version = "4.5.62", features = ["unstable-dynamic"] }
+clap_mangen = "0.2.31"
 color-print = "0.3.7"
 const_format = "0.2.35"
 derive_more = { version = "2.1.1", features = ["display", "error"] }

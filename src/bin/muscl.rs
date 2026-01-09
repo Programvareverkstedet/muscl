@@ -305,6 +305,10 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if handle_manpage_command()?.is_some() {
+        return Ok(());
+    }
+
     #[cfg(feature = "mysql-admutils-compatibility")]
     if handle_mysql_admutils_command()?.is_some() {
         return Ok(());
@@ -358,6 +362,48 @@ fn handle_dynamic_completion() -> anyhow::Result<Option<()>> {
         Ok(Some(()))
     } else {
         Ok(None)
+    }
+}
+
+/// **WARNING:** This function may be run with elevated privileges.
+fn handle_manpage_command() -> anyhow::Result<Option<()>> {
+    let argv1: Option<String> = std::env::args().nth(1);
+
+    match argv1.as_deref() {
+        Some("generate-manpages") => {
+            #[cfg(feature = "suid-sgid-mode")]
+            if executing_in_suid_sgid_mode()? {
+                use muscl_lib::core::bootstrap::drop_privs;
+                drop_privs()?
+            }
+
+            let output_dir = std::env::args().nth(2).ok_or(anyhow::anyhow!(
+                "Output directory argument missing for manpage generation"
+            ))?;
+
+            let output_dir = PathBuf::from(&output_dir);
+            if !output_dir.is_dir() {
+                anyhow::bail!(
+                    "Output directory `{:?}` does not exist or is not a directory",
+                    output_dir,
+                );
+            }
+
+            let mut roff = clap_mangen::roff::Roff::new();
+            let man = clap_mangen::Man::new(Args::command());
+            man.render_title(&mut std::io::stdout())?;
+            man.render_name_section(&mut std::io::stdout())?;
+            man.render_synopsis_section(&mut std::io::stdout())?;
+            man.render_subcommands_section(&mut std::io::stdout())?;
+            man.render_options_section(&mut std::io::stdout())?;
+
+            roff.control("SH", ["VERSION"]);
+            roff.text([clap_mangen::roff::roman(AFTER_LONG_HELP)]);
+            roff.to_writer(&mut std::io::stdout())?;
+
+            Ok(Some(()))
+        }
+        _ => Ok(None),
     }
 }
 
