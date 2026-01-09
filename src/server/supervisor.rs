@@ -582,7 +582,6 @@ async fn listener_task(
             } => {
                 match accept_result {
                     Ok((conn, _addr)) => {
-
                         connection_counter.fetch_add(1, Ordering::Relaxed);
                         let conn_id = connection_counter.load(Ordering::Relaxed);
 
@@ -600,16 +599,12 @@ async fn listener_task(
                                 db_is_mariadb_clone,
                                 &*group_denylist_arc_clone.read().await,
                             ).await {
-                                Ok(()) => {}
-                                Err(e) => {
-                                    tracing::error!("Failed to run server: {}", e);
-                                }
+                                Ok(()) => {},
+                                Err(e) => tracing::error!("Session {} failed: {}", conn_id, e),
                             }
                         });
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to accept new connection: {}", e);
-                    }
+                    },
+                    Err(e) => tracing::error!("Failed to accept new connection: {}", e),
                 }
             }
         }

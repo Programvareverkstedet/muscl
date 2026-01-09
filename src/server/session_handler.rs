@@ -76,7 +76,7 @@ pub async fn session_handler(
         }
     };
 
-    tracing::debug!("Validated peer UID: {}", uid);
+    tracing::trace!("Validated peer UID: {}", uid);
 
     let unix_user = match UnixUser::from_uid(uid) {
         Ok(user) => user,
@@ -137,7 +137,7 @@ pub async fn session_handler_with_unix_user(
 ) -> anyhow::Result<()> {
     let mut message_stream = create_server_to_client_message_stream(socket);
 
-    tracing::debug!("Requesting database connection from pool");
+    tracing::trace!("Requesting database connection from pool");
     let mut db_connection = match db_pool.read().await.acquire().await {
         Ok(connection) => connection,
         Err(err) => {
@@ -154,7 +154,7 @@ pub async fn session_handler_with_unix_user(
             return Err(err.into());
         }
     };
-    tracing::debug!("Successfully acquired database connection from pool");
+    tracing::trace!("Successfully acquired database connection from pool");
 
     let result = session_handler_with_db_connection(
         message_stream,
@@ -166,7 +166,7 @@ pub async fn session_handler_with_unix_user(
     )
     .await;
 
-    tracing::debug!("Releasing database connection back to pool");
+    tracing::trace!("Releasing database connection back to pool");
 
     result
 }
@@ -230,17 +230,20 @@ async fn handle_request(
     stream: &mut ServerToClientMessageStream,
 ) -> anyhow::Result<bool> {
     match &request {
-        Request::Exit => tracing::debug!("Received request: {:#?}", request),
+        Request::Exit => tracing::debug!("Request: exit"),
         Request::PasswdUser((db_user, _)) => tracing::debug!(
-            "Received request: {:#?}",
-            Request::PasswdUser((db_user.to_owned(), "<REDACTED>".to_string()))
+            "Request:\n{}",
+            serde_json::to_string_pretty(&Request::PasswdUser((
+                db_user.to_owned(),
+                "<REDACTED>".to_string()
+            )))?
         ),
         request => tracing::debug!("Request:\n{}", serde_json::to_string_pretty(request)?),
     }
 
     let affected_dbs = request.affected_databases();
     if !affected_dbs.is_empty() {
-        tracing::debug!(
+        tracing::trace!(
             "Affected databases: {}",
             affected_dbs.into_iter().map(|db| db.to_string()).join(", ")
         );
@@ -248,7 +251,7 @@ async fn handle_request(
 
     let affected_users = request.affected_users();
     if !affected_users.is_empty() {
-        tracing::debug!(
+        tracing::trace!(
             "Affected users: {}",
             affected_users.into_iter().map(|u| u.to_string()).join(", "),
         );
@@ -482,7 +485,7 @@ async fn handle_request(
 
     stream.send(response).await?;
     stream.flush().await?;
-    tracing::debug!("Successfully processed request");
+    tracing::trace!("Successfully processed request");
 
     Ok(true)
 }
