@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
 use indoc::concatdoc;
@@ -35,10 +35,24 @@ use crate::{
     },
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SessionId(u64);
+
+impl SessionId {
+    pub fn new(id: u64) -> Self {
+        SessionId(id)
+    }
+
+    pub fn inner(&self) -> u64 {
+        self.0
+    }
+}
+
 // TODO: don't use database connection unless necessary.
 
 pub async fn session_handler(
     socket: UnixStream,
+    session_id: SessionId,
     db_pool: Arc<RwLock<MySqlPool>>,
     db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
@@ -83,13 +97,18 @@ pub async fn session_handler(
         }
     };
 
-    let span = tracing::info_span!("user_session", user = %unix_user);
+    let span = tracing::info_span!(
+        "user_session",
+        session_id = session_id.inner(),
+        user = %unix_user,
+    );
 
     (async move {
-        tracing::info!("Accepted connection from user: {}", unix_user);
+        tracing::debug!("Accepted connection from user: {}", unix_user);
 
         let result = session_handler_with_unix_user(
             socket,
+            session_id,
             &unix_user,
             db_pool,
             db_is_mariadb,
@@ -97,7 +116,7 @@ pub async fn session_handler(
         )
         .await;
 
-        tracing::info!(
+        tracing::debug!(
             "Finished handling requests for connection from user: {}",
             unix_user,
         );
@@ -110,6 +129,7 @@ pub async fn session_handler(
 
 pub async fn session_handler_with_unix_user(
     socket: UnixStream,
+    session_id: SessionId,
     unix_user: &UnixUser,
     db_pool: Arc<RwLock<MySqlPool>>,
     db_is_mariadb: bool,
@@ -138,6 +158,7 @@ pub async fn session_handler_with_unix_user(
 
     let result = session_handler_with_db_connection(
         message_stream,
+        session_id,
         unix_user,
         &mut db_connection,
         db_is_mariadb,
@@ -155,6 +176,7 @@ pub async fn session_handler_with_unix_user(
 
 async fn session_handler_with_db_connection(
     mut stream: ServerToClientMessageStream,
+    session_id: SessionId,
     unix_user: &UnixUser,
     db_connection: &mut MySqlConnection,
     db_is_mariadb: bool,
@@ -178,6 +200,7 @@ async fn session_handler_with_db_connection(
 
         if !handle_request(
             request,
+            session_id,
             unix_user,
             db_connection,
             db_is_mariadb,
@@ -199,6 +222,7 @@ async fn session_handler_with_db_connection(
 /// If the function returns `true`, the session should continue.
 async fn handle_request(
     request: Request,
+    session_id: SessionId,
     unix_user: &UnixUser,
     db_connection: &mut MySqlConnection,
     db_is_mariadb: bool,
@@ -207,11 +231,11 @@ async fn handle_request(
 ) -> anyhow::Result<bool> {
     match &request {
         Request::Exit => tracing::debug!("Received request: {:#?}", request),
-        Request::PasswdUser((db_user, _)) => tracing::info!(
+        Request::PasswdUser((db_user, _)) => tracing::debug!(
             "Received request: {:#?}",
             Request::PasswdUser((db_user.to_owned(), "<REDACTED>".to_string()))
         ),
-        request => tracing::info!("Received request: {:#?}", request),
+        request => tracing::debug!("Request:\n{}", serde_json::to_string_pretty(request)?),
     }
 
     let affected_dbs = request.affected_databases();
@@ -231,7 +255,7 @@ async fn handle_request(
     }
 
     let response = match request {
-        Request::CheckAuthorization(dbs_or_users) => {
+        Request::CheckAuthorization(ref dbs_or_users) => {
             let result = check_authorization(dbs_or_users, unix_user, group_denylist).await;
             Response::CheckAuthorization(result)
         }
@@ -245,7 +269,7 @@ async fn handle_request(
 
             Response::ListValidNamePrefixes(result)
         }
-        Request::CompleteDatabaseName(partial_database_name) => {
+        Request::CompleteDatabaseName(ref partial_database_name) => {
             // TODO: more correct validation here
             if partial_database_name
                 .chars()
@@ -264,7 +288,7 @@ async fn handle_request(
                 Response::CompleteDatabaseName(vec![])
             }
         }
-        Request::CompleteUserName(partial_user_name) => {
+        Request::CompleteUserName(ref partial_user_name) => {
             // TODO: more correct validation here
             if partial_user_name
                 .chars()
@@ -283,7 +307,7 @@ async fn handle_request(
                 Response::CompleteUserName(vec![])
             }
         }
-        Request::CreateDatabases(databases_names) => {
+        Request::CreateDatabases(ref databases_names) => {
             let result = create_databases(
                 databases_names,
                 unix_user,
@@ -294,7 +318,7 @@ async fn handle_request(
             .await;
             Response::CreateDatabases(result)
         }
-        Request::DropDatabases(databases_names) => {
+        Request::DropDatabases(ref databases_names) => {
             let result = drop_databases(
                 databases_names,
                 unix_user,
@@ -305,7 +329,7 @@ async fn handle_request(
             .await;
             Response::DropDatabases(result)
         }
-        Request::ListDatabases(database_names) => {
+        Request::ListDatabases(ref database_names) => {
             if let Some(database_names) = database_names {
                 let result = list_databases(
                     database_names,
@@ -327,7 +351,7 @@ async fn handle_request(
                 Response::ListAllDatabases(result)
             }
         }
-        Request::ListPrivileges(database_names) => {
+        Request::ListPrivileges(ref database_names) => {
             if let Some(database_names) = database_names {
                 let privilege_data = get_databases_privilege_data(
                     database_names,
@@ -349,9 +373,9 @@ async fn handle_request(
                 Response::ListAllPrivileges(privilege_data)
             }
         }
-        Request::ModifyPrivileges(database_privilege_diffs) => {
+        Request::ModifyPrivileges(ref database_privilege_diffs) => {
             let result = apply_privilege_diffs(
-                BTreeSet::from_iter(database_privilege_diffs),
+                database_privilege_diffs,
                 unix_user,
                 db_connection,
                 db_is_mariadb,
@@ -360,7 +384,7 @@ async fn handle_request(
             .await;
             Response::ModifyPrivileges(result)
         }
-        Request::CreateUsers(db_users) => {
+        Request::CreateUsers(ref db_users) => {
             let result = create_database_users(
                 db_users,
                 unix_user,
@@ -371,7 +395,7 @@ async fn handle_request(
             .await;
             Response::CreateUsers(result)
         }
-        Request::DropUsers(db_users) => {
+        Request::DropUsers(ref db_users) => {
             let result = drop_database_users(
                 db_users,
                 unix_user,
@@ -382,10 +406,10 @@ async fn handle_request(
             .await;
             Response::DropUsers(result)
         }
-        Request::PasswdUser((db_user, password)) => {
+        Request::PasswdUser((ref db_user, ref password)) => {
             let result = set_password_for_database_user(
-                &db_user,
-                &password,
+                db_user,
+                password,
                 unix_user,
                 db_connection,
                 db_is_mariadb,
@@ -394,7 +418,7 @@ async fn handle_request(
             .await;
             Response::SetUserPassword(result)
         }
-        Request::ListUsers(db_users) => {
+        Request::ListUsers(ref db_users) => {
             if let Some(db_users) = db_users {
                 let result = list_database_users(
                     db_users,
@@ -416,7 +440,7 @@ async fn handle_request(
                 Response::ListAllUsers(result)
             }
         }
-        Request::LockUsers(db_users) => {
+        Request::LockUsers(ref db_users) => {
             let result = lock_database_users(
                 db_users,
                 unix_user,
@@ -427,7 +451,7 @@ async fn handle_request(
             .await;
             Response::LockUsers(result)
         }
-        Request::UnlockUsers(db_users) => {
+        Request::UnlockUsers(ref db_users) => {
             let result = unlock_database_users(
                 db_users,
                 unix_user,
@@ -449,11 +473,31 @@ async fn handle_request(
         }
         response => response,
     };
-    tracing::debug!("Response: {:#?}", response_to_display);
+    tracing::debug!(
+        "Response:\n{}",
+        serde_json::to_string_pretty(&response_to_display)?
+    );
+
+    log_request(session_id, unix_user, &request, &response);
 
     stream.send(response).await?;
     stream.flush().await?;
     tracing::debug!("Successfully processed request");
 
     Ok(true)
+}
+
+/// Log a summary of the request and its result.
+fn log_request(
+    session_id: SessionId,
+    unix_user: &UnixUser,
+    request: &Request,
+    response: &Response,
+) {
+    tracing::info!(
+        "[{}|session:{}|user:{unix_user}] {}",
+        response.ok_status(),
+        session_id.inner(),
+        request.log_summary(),
+    );
 }

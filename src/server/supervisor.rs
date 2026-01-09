@@ -2,7 +2,10 @@ use std::{
     fs,
     os::{fd::FromRawFd, unix::net::UnixListener as StdUnixListener},
     path::PathBuf,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -22,7 +25,7 @@ use crate::{
     server::{
         authorization::read_and_parse_group_denylist,
         config::{MysqlConfig, ServerConfig},
-        session_handler::session_handler,
+        session_handler::{SessionId, session_handler},
     },
 };
 
@@ -548,6 +551,8 @@ async fn listener_task(
     #[cfg(target_os = "linux")]
     sd_notify::notify(false, &[sd_notify::NotifyState::Ready])?;
 
+    let connection_counter = AtomicU64::new(0);
+
     loop {
         tokio::select! {
             biased;
@@ -577,14 +582,20 @@ async fn listener_task(
             } => {
                 match accept_result {
                     Ok((conn, _addr)) => {
-                        tracing::debug!("Got new connection");
 
+                        connection_counter.fetch_add(1, Ordering::Relaxed);
+                        let conn_id = connection_counter.load(Ordering::Relaxed);
+
+                        tracing::debug!("Got new connection, assigned session ID {}", conn_id);
+
+                        let session_id = SessionId::new(conn_id);
                         let db_pool_clone = db_pool.clone();
                         let db_is_mariadb_clone = *db_is_mariadb.read().await;
                         let group_denylist_arc_clone = group_denylist.clone();
                         task_tracker.spawn(async move {
                             match session_handler(
                                 conn,
+                                session_id,
                                 db_pool_clone,
                                 db_is_mariadb_clone,
                                 &*group_denylist_arc_clone.read().await,

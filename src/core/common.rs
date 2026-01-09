@@ -24,6 +24,7 @@ pub const KIND_REGARDS: &str = concat!(
     "If you experience any bugs or turbulence, please give us a heads up :)",
 );
 
+/// TODO: store and display UID
 #[derive(Debug, Clone)]
 pub struct UnixUser {
     pub username: String,

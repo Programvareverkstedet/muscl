@@ -22,7 +22,7 @@ use crate::{
         authorization::read_and_parse_group_denylist,
         config::{MysqlConfig, ServerConfig},
         landlock::landlock_restrict_server,
-        session_handler,
+        session_handler::{self, SessionId},
     },
 };
 
@@ -308,9 +308,11 @@ fn run_forked_server(
                 version_row.to_lowercase().contains("mariadb")
             };
 
+            let session_id = SessionId::new(0);
             let db_pool = Arc::new(RwLock::new(db_pool));
             session_handler::session_handler_with_unix_user(
                 socket,
+                session_id,
                 unix_user,
                 db_pool,
                 db_is_mariadb,

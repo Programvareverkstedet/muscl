@@ -138,7 +138,7 @@ pub async fn unsafe_get_database_privileges_for_db_user_pair(
 }
 
 pub async fn get_databases_privilege_data(
-    database_names: Vec<MySQLDatabase>,
+    database_names: &[MySQLDatabase],
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
@@ -146,19 +146,19 @@ pub async fn get_databases_privilege_data(
 ) -> ListPrivilegesResponse {
     let mut results = BTreeMap::new();
 
-    for database_name in &database_names {
+    for database_name in database_names.iter().cloned() {
         if let Err(err) = validate_db_or_user_request(
-            &DbOrUser::Database(database_name.clone()),
+            &DbOrUser::Database(database_name.to_owned()),
             unix_user,
             group_denylist,
         )
         .map_err(ListPrivilegesError::ValidationError)
         {
-            results.insert(database_name.to_owned(), Err(err));
+            results.insert(database_name, Err(err));
             continue;
         }
 
-        match unsafe_database_exists(database_name, connection).await {
+        match unsafe_database_exists(&database_name, connection).await {
             Ok(false) => {
                 results.insert(
                     database_name.to_owned(),
@@ -176,7 +176,7 @@ pub async fn get_databases_privilege_data(
             Ok(true) => {}
         }
 
-        let result = unsafe_get_database_privileges(database_name, connection)
+        let result = unsafe_get_database_privileges(&database_name, connection)
             .await
             .map_err(|e| ListPrivilegesError::MySqlError(e.to_string()));
 
@@ -400,7 +400,7 @@ async fn validate_diff(
 
 /// Uses the result of [`diff_privileges`] to modify privileges in the database.
 pub async fn apply_privilege_diffs(
-    database_privilege_diffs: BTreeSet<DatabasePrivilegesDiff>,
+    database_privilege_diffs: &BTreeSet<DatabasePrivilegesDiff>,
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
@@ -468,12 +468,12 @@ pub async fn apply_privilege_diffs(
             Ok(true) => {}
         }
 
-        if let Err(err) = validate_diff(&diff, connection).await {
+        if let Err(err) = validate_diff(diff, connection).await {
             results.insert(key, Err(err));
             continue;
         }
 
-        let result = unsafe_apply_privilege_diff(&diff, connection)
+        let result = unsafe_apply_privilege_diff(diff, connection)
             .await
             .map_err(|e| ModifyDatabasePrivilegesError::MySqlError(e.to_string()));
 

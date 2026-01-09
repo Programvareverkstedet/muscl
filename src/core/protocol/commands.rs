@@ -17,8 +17,6 @@ mod modify_privileges;
 mod passwd_user;
 mod unlock_users;
 
-use std::collections::BTreeSet;
-
 pub use check_authorization::*;
 pub use complete_database_name::*;
 pub use complete_user_name::*;
@@ -37,6 +35,9 @@ pub use lock_users::*;
 pub use modify_privileges::*;
 pub use passwd_user::*;
 pub use unlock_users::*;
+
+use std::collections::BTreeSet;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use tokio::net::UnixStream;
@@ -109,6 +110,7 @@ pub enum Request {
 }
 
 impl Request {
+    /// Get the command name associated with this request.
     pub fn command_name(&self) -> &str {
         match self {
             Request::CheckAuthorization(_) => "check-authorization",
@@ -130,6 +132,43 @@ impl Request {
         }
     }
 
+    /// Generate a short summary string representing this request for logging purposes.
+    pub fn log_summary(&self) -> String {
+        match self {
+            Request::CheckAuthorization(req) => format!("{}({})", self.command_name(), req.len()),
+
+            Request::CreateDatabases(req) => format!("{}({})", self.command_name(), req.len()),
+            Request::DropDatabases(req) => format!("{}({})", self.command_name(), req.len()),
+            Request::ListDatabases(req) => format!(
+                "{}{}",
+                self.command_name(),
+                req.as_ref()
+                    .map_or("".to_string(), |r| format!("({})", r.len()))
+            ),
+            Request::ListPrivileges(req) => format!(
+                "{}{}",
+                self.command_name(),
+                req.as_ref()
+                    .map_or("".to_string(), |r| format!("({})", r.len()))
+            ),
+            Request::ModifyPrivileges(req) => format!("{}({})", self.command_name(), req.len()),
+
+            Request::CreateUsers(req) => format!("{}({})", self.command_name(), req.len()),
+            Request::DropUsers(req) => format!("{}({})", self.command_name(), req.len()),
+            Request::ListUsers(req) => format!(
+                "{}{}",
+                self.command_name(),
+                req.as_ref()
+                    .map_or("".to_string(), |r| format!("({})", r.len()))
+            ),
+            Request::LockUsers(req) => format!("{}({})", self.command_name(), req.len()),
+            Request::UnlockUsers(req) => format!("{}({})", self.command_name(), req.len()),
+
+            _ => self.command_name().to_string(),
+        }
+    }
+
+    /// Get the set of users affected by this request.
     pub fn affected_users(&self) -> BTreeSet<MySQLUser> {
         match self {
             Request::CheckAuthorization(_) => Default::default(),
@@ -158,6 +197,7 @@ impl Request {
         }
     }
 
+    /// Get the set of databases affected by this request.
     pub fn affected_databases(&self) -> BTreeSet<MySQLDatabase> {
         match self {
             Request::CheckAuthorization(_) => Default::default(),
@@ -218,4 +258,96 @@ pub enum Response {
     // Generic responses
     Ready,
     Error(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ResponseOkStatus {
+    Success,
+    PartialSuccess(usize, usize), // succeeded, total
+    Error,
+}
+
+impl ResponseOkStatus {
+    pub fn from_counts(total: usize, succeeded: usize) -> Self {
+        if succeeded == total {
+            ResponseOkStatus::Success
+        } else if succeeded == 0 {
+            ResponseOkStatus::Error
+        } else {
+            ResponseOkStatus::PartialSuccess(succeeded, total)
+        }
+    }
+
+    pub fn from_bool(is_ok: bool) -> Self {
+        if is_ok {
+            ResponseOkStatus::Success
+        } else {
+            ResponseOkStatus::Error
+        }
+    }
+}
+
+impl fmt::Display for ResponseOkStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ResponseOkStatus::Success => write!(f, "OK"),
+            ResponseOkStatus::PartialSuccess(succeeded, total) => {
+                write!(f, "PARTIAL_OK({}/{})", succeeded, total)
+            }
+            ResponseOkStatus::Error => write!(f, "ERR"),
+        }
+    }
+}
+
+impl Response {
+    pub fn ok_status(&self) -> ResponseOkStatus {
+        match self {
+            Response::CheckAuthorization(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+
+            Response::ListValidNamePrefixes(_) => ResponseOkStatus::Success,
+            Response::CompleteDatabaseName(_) => ResponseOkStatus::Success,
+            Response::CompleteUserName(_) => ResponseOkStatus::Success,
+
+            Response::CreateDatabases(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+            Response::DropDatabases(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+            Response::ListDatabases(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+            Response::ListAllDatabases(res) => ResponseOkStatus::from_bool(res.is_ok()),
+            Response::ListPrivileges(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+            Response::ListAllPrivileges(res) => ResponseOkStatus::from_bool(res.is_ok()),
+            Response::ModifyPrivileges(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+
+            Response::CreateUsers(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+            Response::DropUsers(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+            Response::SetUserPassword(res) => ResponseOkStatus::from_bool(res.is_ok()),
+            Response::ListUsers(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+            Response::ListAllUsers(res) => ResponseOkStatus::from_bool(res.is_ok()),
+            Response::LockUsers(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+            Response::UnlockUsers(res) => {
+                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
+            }
+
+            Response::Ready => ResponseOkStatus::Success,
+            Response::Error(_) => ResponseOkStatus::Error,
+        }
+    }
 }

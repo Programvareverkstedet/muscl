@@ -13,23 +13,19 @@ use crate::core::{
 };
 
 pub async fn check_authorization(
-    dbs_or_users: Vec<DbOrUser>,
+    dbs_or_users: &[DbOrUser],
     unix_user: &UnixUser,
     group_denylist: &GroupDenylist,
 ) -> std::collections::BTreeMap<DbOrUser, Result<(), CheckAuthorizationError>> {
-    let mut results = std::collections::BTreeMap::new();
-
-    for db_or_user in dbs_or_users {
-        if let Err(err) = validate_db_or_user_request(&db_or_user, unix_user, group_denylist)
-            .map_err(CheckAuthorizationError)
-        {
-            results.insert(db_or_user.clone(), Err(err));
-            continue;
-        }
-        results.insert(db_or_user.clone(), Ok(()));
-    }
-
-    results
+    dbs_or_users
+        .iter()
+        .cloned()
+        .map(|db_or_user| {
+            let result = validate_db_or_user_request(&db_or_user, unix_user, group_denylist)
+                .map_err(CheckAuthorizationError);
+            (db_or_user, result)
+        })
+        .collect()
 }
 
 /// Reads and parses a group denylist file, returning a set of GUIDs

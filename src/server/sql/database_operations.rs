@@ -46,7 +46,7 @@ pub(super) async fn unsafe_database_exists(
 }
 
 pub async fn complete_database_name(
-    database_prefix: String,
+    database_prefix: &str,
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
@@ -87,7 +87,7 @@ pub async fn complete_database_name(
 }
 
 pub async fn create_databases(
-    database_names: Vec<MySQLDatabase>,
+    database_names: &[MySQLDatabase],
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
@@ -95,7 +95,7 @@ pub async fn create_databases(
 ) -> CreateDatabasesResponse {
     let mut results = BTreeMap::new();
 
-    for database_name in database_names {
+    for database_name in database_names.iter().cloned() {
         if let Err(err) = validate_db_or_user_request(
             &DbOrUser::Database(database_name.clone()),
             unix_user,
@@ -143,7 +143,7 @@ pub async fn create_databases(
 }
 
 pub async fn drop_databases(
-    database_names: Vec<MySQLDatabase>,
+    database_names: &[MySQLDatabase],
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
@@ -151,7 +151,7 @@ pub async fn drop_databases(
 ) -> DropDatabasesResponse {
     let mut results = BTreeMap::new();
 
-    for database_name in database_names {
+    for database_name in database_names.iter().cloned() {
         if let Err(err) = validate_db_or_user_request(
             &DbOrUser::Database(database_name.clone()),
             unix_user,
@@ -242,7 +242,7 @@ impl FromRow<'_, sqlx::mysql::MySqlRow> for DatabaseRow {
 }
 
 pub async fn list_databases(
-    database_names: Vec<MySQLDatabase>,
+    database_names: &[MySQLDatabase],
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
@@ -250,7 +250,7 @@ pub async fn list_databases(
 ) -> ListDatabasesResponse {
     let mut results = BTreeMap::new();
 
-    for database_name in database_names {
+    for database_name in database_names.iter().cloned() {
         if let Err(err) = validate_db_or_user_request(
             &DbOrUser::Database(database_name.clone()),
             unix_user,

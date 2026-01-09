@@ -55,7 +55,7 @@ pub(super) async fn unsafe_user_exists(
 }
 
 pub async fn complete_user_name(
-    user_prefix: String,
+    user_prefix: &str,
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
@@ -95,7 +95,7 @@ pub async fn complete_user_name(
 }
 
 pub async fn create_database_users(
-    db_users: Vec<MySQLUser>,
+    db_users: &[MySQLUser],
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
@@ -103,7 +103,7 @@ pub async fn create_database_users(
 ) -> CreateUsersResponse {
     let mut results = BTreeMap::new();
 
-    for db_user in db_users {
+    for db_user in db_users.iter().cloned() {
         if let Err(err) =
             validate_db_or_user_request(&DbOrUser::User(db_user.clone()), unix_user, group_denylist)
                 .map_err(CreateUserError::ValidationError)
@@ -141,7 +141,7 @@ pub async fn create_database_users(
 }
 
 pub async fn drop_database_users(
-    db_users: Vec<MySQLUser>,
+    db_users: &[MySQLUser],
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
@@ -149,7 +149,7 @@ pub async fn drop_database_users(
 ) -> DropUsersResponse {
     let mut results = BTreeMap::new();
 
-    for db_user in db_users {
+    for db_user in db_users.iter().cloned() {
         if let Err(err) =
             validate_db_or_user_request(&DbOrUser::User(db_user.clone()), unix_user, group_denylist)
                 .map_err(DropUserError::ValidationError)
@@ -272,7 +272,7 @@ async fn database_user_is_locked_unsafe(
 }
 
 pub async fn lock_database_users(
-    db_users: Vec<MySQLUser>,
+    db_users: &[MySQLUser],
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     db_is_mariadb: bool,
@@ -280,7 +280,7 @@ pub async fn lock_database_users(
 ) -> LockUsersResponse {
     let mut results = BTreeMap::new();
 
-    for db_user in db_users {
+    for db_user in db_users.iter().cloned() {
         if let Err(err) =
             validate_db_or_user_request(&DbOrUser::User(db_user.clone()), unix_user, group_denylist)
                 .map_err(LockUserError::ValidationError)
@@ -332,7 +332,7 @@ pub async fn lock_database_users(
 }
 
 pub async fn unlock_database_users(
-    db_users: Vec<MySQLUser>,
+    db_users: &[MySQLUser],
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     db_is_mariadb: bool,
@@ -340,7 +340,7 @@ pub async fn unlock_database_users(
 ) -> UnlockUsersResponse {
     let mut results = BTreeMap::new();
 
-    for db_user in db_users {
+    for db_user in db_users.iter().cloned() {
         if let Err(err) =
             validate_db_or_user_request(&DbOrUser::User(db_user.clone()), unix_user, group_denylist)
                 .map_err(UnlockUserError::ValidationError)
@@ -440,7 +440,7 @@ FROM `user`
 ";
 
 pub async fn list_database_users(
-    db_users: Vec<MySQLUser>,
+    db_users: &[MySQLUser],
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     db_is_mariadb: bool,
@@ -448,7 +448,7 @@ pub async fn list_database_users(
 ) -> ListUsersResponse {
     let mut results = BTreeMap::new();
 
-    for db_user in db_users {
+    for db_user in db_users.iter().cloned() {
         if let Err(err) =
             validate_db_or_user_request(&DbOrUser::User(db_user.clone()), unix_user, group_denylist)
                 .map_err(ListUsersError::ValidationError)
