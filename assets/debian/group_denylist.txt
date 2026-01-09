@@ -1,6 +1,7 @@
 # These are the default system groups on debian.
 # You can alos add groups by gid by prefixing the line with 'gid:'.
 
+group:_ssh
 group:adm
 group:audio
 group:avahi
@@ -12,6 +13,7 @@ group:daemon
 group:dialout
 group:dip
 group:disk
+group:docker
 group:fax
 group:floppy
 group:games
@@ -22,9 +24,12 @@ group:kmem
 group:kvm
 group:list
 group:lp
+group:lxd
 group:mail
 group:man
+group:messagebus
 group:mlocate
+group:mysql
 group:netdev
 group:news
 group:nogroup
@@ -42,15 +47,18 @@ group:src
 group:staff
 group:sudo
 group:sys
+group:syslog
 group:systemd-journal
 group:systemd-network
 group:systemd-resolve
 group:systemd-timesync
 group:tape
+group:tcpdump
 group:tty
 group:users
 group:utmp
 group:uucp
+group:uuidd
 group:video
 group:voice
 group:www-data
