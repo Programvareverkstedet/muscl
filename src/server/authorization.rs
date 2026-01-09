@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::Path};
+use std::{collections::HashSet, path::Path, str::Lines};
 
 use anyhow::Context;
 use nix::unistd::Group;
@@ -41,14 +41,23 @@ pub fn read_and_parse_group_denylist(denylist_path: &Path) -> anyhow::Result<Gro
     let content = std::fs::read_to_string(denylist_path)
         .context(format!("Failed to read denylist file at {denylist_path:?}"))?;
 
-    let mut groups = HashSet::with_capacity(content.lines().count());
+    let lines = content.lines();
 
-    for (line_number, line) in content.lines().enumerate() {
-        let trimmed_line = line.trim();
+    let groups = parse_group_denylist(denylist_path, lines);
 
-        if trimmed_line.is_empty() || trimmed_line.starts_with('#') {
-            continue;
+    Ok(groups)
+}
+
+fn parse_group_denylist(denylist_path: &Path, lines: Lines) -> GroupDenylist {
+    let mut groups = HashSet::<u32>::new();
+
+    for (line_number, line) in lines.enumerate() {
+        let trimmed_line = if let Some(comment_start) = line.find('#') {
+            &line[..comment_start]
+        } else {
+            line
         }
+        .trim();
 
         let parts: Vec<&str> = trimmed_line.splitn(2, ':').collect();
         if parts.len() != 2 {
@@ -137,5 +146,32 @@ pub fn read_and_parse_group_denylist(denylist_path: &Path) -> anyhow::Result<Gro
         }
     }
 
-    Ok(groups)
+    groups
+}
+
+#[cfg(test)]
+mod tests {
+    use indoc::indoc;
+
+    use super::*;
+
+    #[test]
+    fn test_parse_group_denylist() {
+        let denylist_content = indoc! {"
+            # Valid entries
+            gid:0 # This is usually the 'root' group
+            group:root # This is also the 'root' group, should deduplicate
+
+            # Invalid entries
+            invalid_line
+            gid:not_a_number
+            group:nonexistent_group
+        "};
+
+        let lines = denylist_content.lines();
+        let group_denylist = parse_group_denylist(Path::new("test_denylist"), lines);
+
+        assert_eq!(group_denylist.len(), 1);
+        assert!(group_denylist.contains(&0));
+    }
 }
