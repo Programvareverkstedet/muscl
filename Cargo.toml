@@ -76,12 +76,12 @@ path = "src/lib.rs"
 [[bin]]
 name = "muscl"
 bench = false
-path = "src/entrypoints/muscl.rs"
+path = "src/bin/muscl.rs"
 
 [[bin]]
 name = "muscl-server"
 bench = false
-path = "src/entrypoints/muscl_server.rs"
+path = "src/bin/muscl_server.rs"
 
 [profile.release-lto]
 inherits = "release"
