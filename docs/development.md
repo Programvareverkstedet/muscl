@@ -39,7 +39,12 @@ docker stop mariadb
 
 ## Development using Nix
 
-If you have nix installed, you can easily test your changes in a NixOS vm by running:
+> [!NOTE]
+> We have created some nix code to generate a QEMU VM with a setup similar to a production deployment
+> There is not necessarily any VMs running in a production setup, and if so then at least not this VM.
+> It is mainly there for easy access to interactive testing, as well as for testing the NixOS module.
+
+If you have nix installed, you can easily test your changes in a NixOS test VM by running:
 
 ```bash
 nix run .#vm # Start a NixOS VM in QEMU with muscl and MariaDB installed
