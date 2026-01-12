@@ -59,6 +59,10 @@ fn parse_group_denylist(denylist_path: &Path, lines: Lines) -> GroupDenylist {
         }
         .trim();
 
+        if trimmed_line.is_empty() {
+            continue;
+        }
+
         let parts: Vec<&str> = trimmed_line.splitn(2, ':').collect();
         if parts.len() != 2 {
             tracing::warn!(
