@@ -1,5 +1,6 @@
 use std::{
     fs,
+    os::unix::fs::FileTypeExt,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -7,7 +8,10 @@ use std::{
 
 use anyhow::{Context, anyhow};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use nix::libc::{EXIT_SUCCESS, exit};
+use nix::{
+    libc::{EXIT_SUCCESS, exit},
+    unistd::{AccessFlags, access},
+};
 use sqlx::mysql::MySqlPoolOptions;
 use std::os::unix::net::UnixStream as StdUnixStream;
 use tokio::{net::UnixStream as TokioUnixStream, sync::RwLock};
@@ -130,11 +134,28 @@ pub fn bootstrap_server_connection_and_drop_privileges(
     }
 }
 
+fn socket_path_is_ok(path: &Path) -> anyhow::Result<()> {
+    fs::metadata(path)
+        .context(format!("Failed to get metadata for {:?}", path))
+        .and_then(|meta| {
+            if !meta.file_type().is_socket() {
+                anyhow::bail!("{:?} is not a unix socket", path);
+            }
+
+            access(path, AccessFlags::R_OK | AccessFlags::W_OK)
+                .with_context(|| format!("Socket at {:?} is not readable/writable", path))?;
+
+            Ok(())
+        })
+}
+
 fn connect_to_external_server(
     server_socket_path: Option<PathBuf>,
 ) -> anyhow::Result<StdUnixStream> {
-    // TODO: ensure this is both readable and writable
     if let Some(socket_path) = server_socket_path {
+        tracing::trace!("Checking socket at {:?}", socket_path);
+        socket_path_is_ok(&socket_path)?;
+
         tracing::debug!("Connecting to socket at {:?}", socket_path);
         return match StdUnixStream::connect(socket_path) {
             Ok(socket) => Ok(socket),
@@ -147,6 +168,9 @@ fn connect_to_external_server(
     }
 
     if fs::metadata(DEFAULT_SOCKET_PATH).is_ok() {
+        tracing::trace!("Checking socket at {:?}", DEFAULT_SOCKET_PATH);
+        socket_path_is_ok(Path::new(DEFAULT_SOCKET_PATH))?;
+
         tracing::debug!("Connecting to default socket at {:?}", DEFAULT_SOCKET_PATH);
         return match StdUnixStream::connect(DEFAULT_SOCKET_PATH) {
             Ok(socket) => Ok(socket),
@@ -158,7 +182,9 @@ fn connect_to_external_server(
         };
     }
 
-    anyhow::bail!("No socket path provided, and no default socket found");
+    anyhow::bail!(
+        "No socket path provided, and no socket found found at default location {DEFAULT_SOCKET_PATH}"
+    );
 }
 
 // TODO: this function is security critical, it should be integration tested

@@ -319,7 +319,8 @@ fn main() -> anyhow::Result<()> {
         #[cfg(not(feature = "suid-sgid-mode"))]
         None,
         args.verbose,
-    )?;
+    )
+    .context("Failed to connect to the server")?;
 
     tokio_run_command(args.command, connection)?;
 
