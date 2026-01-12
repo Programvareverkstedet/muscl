@@ -52,11 +52,3 @@ nix run .#vm-mysql # Start a NixOS VM in QEMU with muscl and MySQL installed
 ```
 
 You can configure the vm in `flake.nix`
-
-## Filter logs by user with journalctl
-
-If you want to filter the server logs by user, you can use journalctl's built-in filtering capabilities.
-
-```bash
-journalctl -eu muscl F_USER=<username>
-```

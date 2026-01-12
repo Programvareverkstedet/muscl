@@ -47,7 +47,8 @@ over a IPC, which then performs the requested operations on behalf of the client
 
 ## Documentation
 
-- [Installation and configuration](docs/installation.md)
+- [Installation and initial configuration](docs/installation.md)
+- [Administration and further configuration](docs/administration.md)
 - [Development and testing](docs/development.md)
 - [Compiling and packaging](docs/compiling.md)
 - [Compatibility mode with mysql-admutils](docs/mysql-admutils-compatibility.md)

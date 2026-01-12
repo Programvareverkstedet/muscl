@@ -1,8 +1,10 @@
-# Installation and configuration
+# Installation and initial configuration
 
 This document contains instructions for the recommended way of installing and configuring muscl.
 
 Note that there are separate instructions for [installing on NixOS](nixos.md) and [installing with SUID/SGID mode](suid-sgid-mode.md).
+
+After installation, you might want to look at the [Administration and further configuration](administration.md) page.
 
 ## Installing with deb on Debian
 
@@ -102,28 +104,6 @@ If you are using systemd, you should also create an override to unset the `Impor
 [Service]
 ImportCredential=
 ```
-
-## Configuring group denylists
-
-In `/etc/muscl/muscl.conf`, you will find an option below `[authorization]` named `group_denylist_file`,
-which points to `/etc/muscl/group_denylist.txt` by default.
-
-In this file, you can add unix group names or GIDs to disallow the groups from being used as prefixes.
-
-The deb package comes with a default denylist that disallows some common system groups.
-
-The format of the file is one group name or GID per line. Lines starting with `#` and empty lines are ignored.
-
-```
-# Disallow using the 'root' group as a prefix
-gid:0
-
-# Disallow using the 'adm' group as a prefix
-group:adm
-```
-
-> [!NOTE]
-> If a user is named the same as a disallowed group, that user will still be able to use their username as a prefix.
 
 ## A note on minimum version requirements
 
