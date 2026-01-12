@@ -35,7 +35,7 @@ spawn the editor stored in the $EDITOR environment variable.
 (pico will be used if the variable is unset)
 
 The file should contain one line per user, starting with the
-username and followed by ten Y/N-values seperated by whitespace.
+username and followed by ten Y/N-values separated by whitespace.
 Lines starting with # are ignored.
 
 The Y/N-values corresponds to the following mysql privileges:

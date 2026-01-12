@@ -140,7 +140,7 @@ impl Supervisor {
 
         let (tx, rx) = broadcast::channel(1);
 
-        // TODO: try to detech systemd socket before using the provided socket path
+        // TODO: try to detect systemd socket before using the provided socket path
         #[cfg(target_os = "linux")]
         let listener = Arc::new(RwLock::new(match config.socket_path {
             Some(ref path) => create_unix_listener_with_socket_path(path.clone()).await?,

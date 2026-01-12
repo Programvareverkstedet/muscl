@@ -4,8 +4,8 @@
 > This will be deprecated in a future release, see https://git.pvv.ntnu.no/Projects/muscl/issues/101
 >
 > We do not recommend you use this mode unless you absolutely have to. The biggest reason why `muscl` was rewritten from scratch
-> was to fix an architectural issue that easily caused vulnerabilites due to reliance on SUID/SGID. Althought the architecture now
-> is more resistant against such vulnerabilites, it is not failsafe.
+> was to fix an architectural issue that easily caused vulnerabilities due to reliance on SUID/SGID. Although the architecture now
+> is more resistant against such vulnerabilities, it is not failsafe.
 
 For backwards compatibility reasons, it is possible to run the program without a daemon by utilizing SUID/SGID.
 

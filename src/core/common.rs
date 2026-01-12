@@ -100,7 +100,7 @@ impl UnixUser {
         })
     }
 
-    // pub fn from_enviroment() -> anyhow::Result<Self> {
+    // pub fn from_environment() -> anyhow::Result<Self> {
     //     let libc_uid = nix::unistd::getuid();
     //     UnixUser::from_uid(libc_uid.as_raw())
     // }

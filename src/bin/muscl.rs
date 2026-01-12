@@ -376,7 +376,7 @@ fn handle_mysql_admutils_command() -> anyhow::Result<Option<()>> {
     }
 }
 
-/// Run the given commmand (from the client side) using Tokio.
+/// Run the given command (from the client side) using Tokio.
 fn tokio_run_command(
     command: ClientCommand,
     server_connection: StdUnixStream,

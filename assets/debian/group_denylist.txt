@@ -1,5 +1,5 @@
 # These are the default system groups on debian.
-# You can alos add groups by gid by prefixing the line with 'gid:'.
+# You can also add groups by gid by prefixing the line with 'gid:'.
 
 group:_ssh
 group:adm
