@@ -155,15 +155,14 @@ in
     systemd.services."muscl" = {
       reloadTriggers = [ config.environment.etc."muscl/config.toml".source ];
       serviceConfig = {
+        Type = "notify-reload";
         ExecStart = [
           ""
           "${lib.getExe' cfg.package "muscl-server"} ${cfg.logLevel} --systemd --disable-landlock socket-activate"
         ];
 
-        ExecReload = [
-           ""
-           "${lib.getExe' pkgs.coreutils "kill"} -HUP $MAINPID"
-        ];
+        ExecReload = "";
+        ReloadSignal = "SIGHUP";
 
         RuntimeDirectory = "muscl/root-mnt";
         RuntimeDirectoryMode = "0700";
