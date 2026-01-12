@@ -295,7 +295,15 @@ impl Supervisor {
 
     pub async fn reload(&self) -> anyhow::Result<()> {
         #[cfg(target_os = "linux")]
-        sd_notify::notify(false, &[sd_notify::NotifyState::Reloading])?;
+        sd_notify::notify(
+            false,
+            &[
+                sd_notify::NotifyState::Reloading,
+                sd_notify::NotifyState::monotonic_usec_now()
+                    .expect("Failed to get monotonic time to send to systemd while reloading"),
+                sd_notify::NotifyState::Status("Reloading configuration"),
+            ],
+        )?;
 
         let previous_config = self.config.lock().await.clone();
         self.reload_config().await?;
