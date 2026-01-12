@@ -61,3 +61,7 @@ SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
 
 UMask=0777
+
+[Install]
+Also=muscl.socket
+WantedBy=multi-user.target
