@@ -3,6 +3,7 @@ Description=Muscl MySQL admin tool
 
 [Socket]
 ListenStream=/run/muscl/muscl.sock
+RemoveOnStop=true
 Accept=no
 PassCredentials=true
 
