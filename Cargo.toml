@@ -5,8 +5,7 @@ edition = "2024"
 resolver = "2"
 license = "BSD-3-Clause"
 authors = [
-  "oysteikt@pvv.ntnu.no",
-  "felixalb@pvv.ntnu.no",
+  "Programvareverkstedet <projects@pvv.ntnu.no>",
 ]
 homepage = "https://git.pvv.ntnu.no/Projects/muscl"
 repository = "https://git.pvv.ntnu.no/Projects/muscl"
