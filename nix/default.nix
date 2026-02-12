@@ -88,7 +88,7 @@ buildFunction ({
   '';
 
   meta = with lib; {
-    license = licenses.mit;
+    license = licenses.bsd3;
     platforms = platforms.linux ++ platforms.darwin;
     inherit mainProgram;
   };
