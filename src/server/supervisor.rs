@@ -90,14 +90,12 @@ impl Supervisor {
         };
 
         let mut watchdog_duration = None;
-        let mut watchdog_micro_seconds = 0;
         #[cfg(target_os = "linux")]
         let watchdog_task =
-            if systemd_mode && sd_notify::watchdog_enabled(true, &mut watchdog_micro_seconds) {
-                let watchdog_duration_ = Duration::from_micros(watchdog_micro_seconds);
+            if systemd_mode && let Some(watchdog_duration_) = sd_notify::watchdog_enabled() {
                 tracing::debug!(
                     "Systemd watchdog enabled with {} millisecond interval",
-                    watchdog_micro_seconds.div_ceil(1000),
+                    watchdog_duration_.as_millis()
                 );
                 watchdog_duration = Some(watchdog_duration_);
                 Some(spawn_watchdog_task(watchdog_duration_))
@@ -295,15 +293,12 @@ impl Supervisor {
 
     pub async fn reload(&self) -> anyhow::Result<()> {
         #[cfg(target_os = "linux")]
-        sd_notify::notify(
-            false,
-            &[
-                sd_notify::NotifyState::Reloading,
-                sd_notify::NotifyState::monotonic_usec_now()
-                    .expect("Failed to get monotonic time to send to systemd while reloading"),
-                sd_notify::NotifyState::Status("Reloading configuration"),
-            ],
-        )?;
+        sd_notify::notify(&[
+            sd_notify::NotifyState::Reloading,
+            sd_notify::NotifyState::monotonic_usec_now()
+                .expect("Failed to get monotonic time to send to systemd while reloading"),
+            sd_notify::NotifyState::Status("Reloading configuration"),
+        ])?;
 
         let previous_config = self.config.lock().await.clone();
         self.reload_config().await?;
@@ -340,14 +335,14 @@ impl Supervisor {
         }
 
         #[cfg(target_os = "linux")]
-        sd_notify::notify(false, &[sd_notify::NotifyState::Ready])?;
+        sd_notify::notify(&[sd_notify::NotifyState::Ready])?;
 
         Ok(())
     }
 
     pub async fn shutdown(&self) -> anyhow::Result<()> {
         #[cfg(target_os = "linux")]
-        sd_notify::notify(false, &[sd_notify::NotifyState::Stopping])?;
+        sd_notify::notify(&[sd_notify::NotifyState::Stopping])?;
 
         tracing::debug!("Stop accepting new connections");
         self.stop_receiving_new_connections()?;
@@ -417,7 +412,7 @@ fn spawn_watchdog_task(duration: Duration) -> JoinHandle<()> {
         );
         loop {
             interval.tick().await;
-            if let Err(err) = sd_notify::notify(false, &[sd_notify::NotifyState::Watchdog]) {
+            if let Err(err) = sd_notify::notify(&[sd_notify::NotifyState::Watchdog]) {
                 tracing::warn!("Failed to notify systemd watchdog: {}", err);
             }
         }
@@ -440,9 +435,7 @@ fn spawn_status_notifier_task(task_tracker: TaskTracker) -> JoinHandle<()> {
                 "Waiting for connections".to_string()
             };
 
-            if let Err(e) =
-                sd_notify::notify(false, &[sd_notify::NotifyState::Status(message.as_str())])
-            {
+            if let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Status(message.as_str())]) {
                 tracing::warn!("Failed to send systemd status notification: {}", e);
             }
         }
@@ -557,7 +550,7 @@ async fn listener_task(
     group_denylist: Arc<RwLock<GroupDenylist>>,
 ) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
-    sd_notify::notify(false, &[sd_notify::NotifyState::Ready])?;
+    sd_notify::notify(&[sd_notify::NotifyState::Ready])?;
 
     let connection_counter = AtomicU64::new(0);
 
