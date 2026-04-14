@@ -34,7 +34,7 @@ impl DerefMut for MySQLUser {
 
 impl fmt::Display for MySQLUser {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:<width$}", self.0, width = f.width().unwrap_or(0))
+        self.0.fmt(f)
     }
 }
 
@@ -83,7 +83,7 @@ impl DerefMut for MySQLDatabase {
 
 impl fmt::Display for MySQLDatabase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:<width$}", self.0, width = f.width().unwrap_or(0))
+        self.0.fmt(f)
     }
 }
 
