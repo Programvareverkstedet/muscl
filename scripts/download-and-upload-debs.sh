@@ -42,7 +42,7 @@ declare -r GIT_SHA="$2"
 
 TMPDIR="$(mktemp -d)"
 
-for variant in debian-bookworm debian-trixie ubuntu-jammy ubuntu-noble; do
+for variant in debian-bookworm debian-trixie ubuntu-jammy ubuntu-noble ubuntu-resolute; do
     echo "Downloading and uploading debs for variant: $variant"
     curl "https://git.pvv.ntnu.no/Projects/muscl/actions/runs/$RUN_NUMBER/artifacts/muscl-deb-$variant-$GIT_SHA.zip" --output "$TMPDIR/muscl-deb-$variant-$GIT_SHA.zip"
 
