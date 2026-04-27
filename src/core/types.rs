@@ -105,10 +105,41 @@ impl From<MySQLDatabase> for OsString {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DbOrUser {
     Database(MySQLDatabase),
     User(MySQLUser),
+}
+
+impl Serialize for DbOrUser {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            DbOrUser::Database(db) => ("d:".to_string() + &db.to_string()).serialize(serializer),
+            DbOrUser::User(user) => ("u:".to_string() + &user.to_string()).serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DbOrUser {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if let Some(rest) = s.strip_prefix("d:") {
+            Ok(DbOrUser::Database(MySQLDatabase(rest.to_string())))
+        } else if let Some(rest) = s.strip_prefix("u:") {
+            Ok(DbOrUser::User(MySQLUser(rest.to_string())))
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "Invalid DbOrUser format: {}",
+                s
+            )))
+        }
+    }
 }
 
 impl DbOrUser {
