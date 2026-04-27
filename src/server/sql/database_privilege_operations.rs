@@ -114,7 +114,7 @@ pub async fn unsafe_get_database_privileges_for_db_user_pair(
     connection: &mut MySqlConnection,
 ) -> Result<Option<DatabasePrivilegeRow>, sqlx::Error> {
     let result = sqlx::query_as::<_, DatabasePrivilegeRow>(&format!(
-        "SELECT {} FROM `db` WHERE `Db` = ? AND `User` = ?",
+        "SELECT {} FROM `db` WHERE `Db` = ? AND `User` = ? AND `Host` = '%'",
         DATABASE_PRIVILEGE_FIELDS
             .iter()
             .map(|field| quote_identifier(field))
@@ -234,11 +234,12 @@ async fn unsafe_apply_privilege_diff(
         DatabasePrivilegesDiff::New(p) => {
             let tables = DATABASE_PRIVILEGE_FIELDS
                 .iter()
+                .chain(&["Host"])
                 .map(|field| quote_identifier(field))
                 .join(",");
 
             let question_marks =
-                std::iter::repeat_n("?", DATABASE_PRIVILEGE_FIELDS.len()).join(",");
+                std::iter::repeat_n("?", DATABASE_PRIVILEGE_FIELDS.len() + 1).join(",");
 
             sqlx::query(format!("INSERT INTO `db` ({tables}) VALUES ({question_marks})").as_str())
                 .bind(p.db.to_string())
@@ -254,6 +255,7 @@ async fn unsafe_apply_privilege_diff(
                 .bind(yn(p.create_tmp_table_priv))
                 .bind(yn(p.lock_tables_priv))
                 .bind(yn(p.references_priv))
+                .bind("%")
                 .execute(connection)
                 .await
                 .map(|_| ())
@@ -278,28 +280,33 @@ async fn unsafe_apply_privilege_diff(
                 }
             }
 
-            sqlx::query(format!("UPDATE `db` SET {changes} WHERE `Db` = ? AND `User` = ?").as_str())
-                .bind(p.select_priv.map(change_to_yn))
-                .bind(p.insert_priv.map(change_to_yn))
-                .bind(p.update_priv.map(change_to_yn))
-                .bind(p.delete_priv.map(change_to_yn))
-                .bind(p.create_priv.map(change_to_yn))
-                .bind(p.drop_priv.map(change_to_yn))
-                .bind(p.alter_priv.map(change_to_yn))
-                .bind(p.index_priv.map(change_to_yn))
-                .bind(p.create_tmp_table_priv.map(change_to_yn))
-                .bind(p.lock_tables_priv.map(change_to_yn))
-                .bind(p.references_priv.map(change_to_yn))
-                .bind(p.db.to_string())
-                .bind(p.user.to_string())
-                .execute(connection)
-                .await
-                .map(|_| ())
+            sqlx::query(
+                format!("UPDATE `db` SET {changes} WHERE `Db` = ? AND `User` = ? AND `Host` = ?")
+                    .as_str(),
+            )
+            .bind(p.select_priv.map(change_to_yn))
+            .bind(p.insert_priv.map(change_to_yn))
+            .bind(p.update_priv.map(change_to_yn))
+            .bind(p.delete_priv.map(change_to_yn))
+            .bind(p.create_priv.map(change_to_yn))
+            .bind(p.drop_priv.map(change_to_yn))
+            .bind(p.alter_priv.map(change_to_yn))
+            .bind(p.index_priv.map(change_to_yn))
+            .bind(p.create_tmp_table_priv.map(change_to_yn))
+            .bind(p.lock_tables_priv.map(change_to_yn))
+            .bind(p.references_priv.map(change_to_yn))
+            .bind(p.db.to_string())
+            .bind(p.user.to_string())
+            .bind("%")
+            .execute(connection)
+            .await
+            .map(|_| ())
         }
         DatabasePrivilegesDiff::Deleted(p) => {
-            sqlx::query("DELETE FROM `db` WHERE `Db` = ? AND `User` = ?")
+            sqlx::query("DELETE FROM `db` WHERE `Db` = ? AND `User` = ? AND `Host` = ?")
                 .bind(p.db.to_string())
                 .bind(p.user.to_string())
+                .bind("%")
                 .execute(connection)
                 .await
                 .map(|_| ())

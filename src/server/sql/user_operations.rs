@@ -39,6 +39,7 @@ pub(super) async fn unsafe_user_exists(
             SELECT 1
             FROM `mysql`.`user`
             WHERE `User` = ?
+              AND `Host` = '%'
           )
         ",
     )
@@ -67,6 +68,7 @@ pub async fn complete_user_name(
           FROM `mysql`.`user`
           WHERE `User` REGEXP ?
             AND `User` LIKE ?
+            AND `Host` = '%'
         ",
     )
     .bind(create_user_group_matching_regex(unix_user, group_denylist))
@@ -462,7 +464,7 @@ pub async fn list_database_users(
                 DB_USER_SELECT_STATEMENT_MARIADB.to_string()
             } else {
                 DB_USER_SELECT_STATEMENT_MYSQL.to_string()
-            } + "WHERE `mysql`.`user`.`User` = ?"),
+            } + "WHERE `mysql`.`user`.`User` = ? AND `mysql`.`user`.`Host` = '%'"),
         )
         .bind(db_user.as_str())
         .fetch_optional(&mut *connection)
@@ -499,7 +501,7 @@ pub async fn list_all_database_users_for_unix_user(
             DB_USER_SELECT_STATEMENT_MARIADB.to_string()
         } else {
             DB_USER_SELECT_STATEMENT_MYSQL.to_string()
-        } + "WHERE `user`.`User` REGEXP ?"),
+        } + "WHERE `user`.`User` REGEXP ? AND `user`.`Host` = '%'"),
     )
     .bind(create_user_group_matching_regex(unix_user, group_denylist))
     .fetch_all(&mut *connection)
@@ -534,7 +536,7 @@ pub async fn set_databases_where_user_has_privileges(
             r"
                 SELECT `Db` AS `database`
                 FROM `db`
-                WHERE `User` = ? AND ({})
+                WHERE `User` = ?  AND `Host` = '%' AND ({})
             ",
             DATABASE_PRIVILEGE_FIELDS
                 .iter()
