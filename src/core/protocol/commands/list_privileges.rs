@@ -153,3 +153,44 @@ impl ListPrivilegesError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_request() {
+        let request: ListPrivilegesRequest = Some(vec!["test_db1".into(), "test_db2".into()]);
+        let json = serde_json::to_string_pretty(&request).unwrap();
+        println!("Serialized request:\n{}", json);
+
+        let deserialized: ListPrivilegesRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response: ListPrivilegesResponse = BTreeMap::from([
+            (
+                "test_db1".into(),
+                Ok(vec![DatabasePrivilegeRow {
+                    db: "test_db1".into(),
+                    user: "user1".into(),
+                    select_priv: true,
+                    insert_priv: false,
+                    ..Default::default()
+                }]),
+            ),
+            (
+                "test_db2".into(),
+                Err(ListPrivilegesError::DatabaseDoesNotExist),
+            ),
+        ]);
+
+        let json = serde_json::to_string_pretty(&response).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let deserialized: ListPrivilegesResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response, deserialized);
+    }
+}

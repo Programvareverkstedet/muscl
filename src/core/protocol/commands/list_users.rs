@@ -121,3 +121,48 @@ impl ListUsersError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_request() {
+        let request: ListUsersRequest = Some(vec!["test_user1".into(), "test_user2".into()]);
+
+        let json = serde_json::to_string_pretty(&request).unwrap();
+        println!("Serialized request:\n{}", json);
+
+        let deserialized: ListUsersRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response_ok: ListUsersResponse = BTreeMap::from([
+            (
+                "test_user1".into(),
+                Ok(DatabaseUser {
+                    user: "test_user1".into(),
+                    host: "%".into(),
+                    has_password: true,
+                    is_locked: false,
+                    databases: vec!["db1".into(), "db2".into()],
+                }),
+            ),
+            ("test_user2".into(), Err(ListUsersError::UserDoesNotExist)),
+        ]);
+
+        let json = serde_json::to_string_pretty(&response_ok).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let mut deserialized: ListUsersResponse = serde_json::from_str(&json).unwrap();
+        deserialized
+            .get_mut(&"test_user1".into())
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .host = "%".into();
+        assert_eq!(response_ok, deserialized);
+    }
+}

@@ -27,3 +27,36 @@ impl ListAllDatabasesError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response: ListAllDatabasesResponse = Ok(vec![
+            DatabaseRow {
+                database: "db1".into(),
+                tables: vec!["table1".into(), "table2".into()],
+                users: vec!["user1".into(), "user2".into()],
+                collation: Some("utf8mb4_general_ci".into()),
+                character_set: Some("utf8mb4".into()),
+                size_bytes: 1024,
+            },
+            DatabaseRow {
+                database: "db2".into(),
+                tables: vec!["table3".into(), "table4".into()],
+                users: vec!["user3".into(), "user4".into()],
+                collation: Some("utf8mb4_general_ci".into()),
+                character_set: Some("utf8mb4".into()),
+                size_bytes: 2048,
+            },
+        ]);
+
+        let json = serde_json::to_string_pretty(&response).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let deserialized: ListAllDatabasesResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response, deserialized);
+    }
+}

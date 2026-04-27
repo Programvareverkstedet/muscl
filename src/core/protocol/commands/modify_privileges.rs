@@ -144,3 +144,43 @@ impl DiffDoesNotApplyError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::*;
+
+    #[test]
+    fn test_serialize_deserialize_request() {
+        let request =
+            BTreeSet::from([DatabasePrivilegesDiff::Modified(DatabasePrivilegeRowDiff {
+                db: "test_db".into(),
+                user: "test_user".into(),
+                select_priv: Some(database_privileges::DatabasePrivilegeChange::NoToYes),
+                ..Default::default()
+            })]);
+
+        let json = serde_json::to_string_pretty(&request).unwrap();
+        println!("Serialized request:\n{}", json);
+
+        let deserialized: ModifyPrivilegesRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response: ModifyPrivilegesResponse = BTreeMap::from([
+            (("test_db".into(), "test_user".into()), Ok(())),
+            (
+                ("test_db".into(), "invalid_user".into()),
+                Err(ModifyDatabasePrivilegesError::UserDoesNotExist),
+            ),
+        ]);
+
+        let json = serde_json::to_string_pretty(&response).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let deserialized: ModifyPrivilegesResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response, deserialized);
+    }
+}

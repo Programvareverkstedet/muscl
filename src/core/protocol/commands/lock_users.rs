@@ -94,3 +94,33 @@ impl LockUserError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_request() {
+        let request: LockUsersRequest = vec!["test_user1".into(), "test_user2".into()];
+
+        let json = serde_json::to_string_pretty(&request).unwrap();
+        println!("Serialized request:\n{}", json);
+
+        let deserialized: LockUsersRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response_ok: LockUsersResponse = BTreeMap::from([
+            ("test_user1".into(), Ok(())),
+            ("test_user2".into(), Err(LockUserError::UserDoesNotExist)),
+        ]);
+
+        let json = serde_json::to_string_pretty(&response_ok).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let deserialized: LockUsersResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response_ok, deserialized);
+    }
+}

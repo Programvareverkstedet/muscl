@@ -67,3 +67,43 @@ impl CheckAuthorizationError {
         self.0.error_type()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::core::protocol::request_validation::NameValidationError;
+
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_request() {
+        let request: CheckAuthorizationRequest = vec![
+            DbOrUser::Database("test_db".into()),
+            DbOrUser::User("test_user".into()),
+        ];
+
+        let json = serde_json::to_string_pretty(&request).unwrap();
+        println!("Serialized request:\n{}", json);
+
+        let deserialized: CheckAuthorizationRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response: CheckAuthorizationResponse = BTreeMap::from([
+            (DbOrUser::Database("test_db".into()), Ok(())),
+            (
+                DbOrUser::User("test_user".into()),
+                Err(CheckAuthorizationError(
+                    ValidationError::NameValidationError(NameValidationError::TooLong),
+                )),
+            ),
+        ]);
+
+        let json = serde_json::to_string_pretty(&response).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let deserialized: CheckAuthorizationResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response, deserialized);
+    }
+}

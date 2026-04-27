@@ -29,7 +29,7 @@ pub const DATABASE_PRIVILEGE_FIELDS: [&str; 13] = [
 //       doesn't have any natural implementation semantics.
 
 /// Representation of the set of privileges for a single user on a single database.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Default)]
 pub struct DatabasePrivilegeRow {
     // TODO: don't store the db and user here, let the type be stored in a mapping
     pub db: MySQLDatabase,

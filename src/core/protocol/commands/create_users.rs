@@ -87,3 +87,37 @@ impl CreateUserError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_request() {
+        let request: CreateUsersRequest = vec!["alice".into(), "bob".into(), "charlie".into()];
+
+        let json = serde_json::to_string_pretty(&request).unwrap();
+        println!("Serialized request:\n{}", json);
+
+        let deserialized: CreateUsersRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response: CreateUsersResponse = BTreeMap::from([
+            ("alice".into(), Ok(())),
+            ("bob".into(), Err(CreateUserError::UserAlreadyExists)),
+            (
+                "charlie".into(),
+                Err(CreateUserError::MySqlError("Some MySQL error".into())),
+            ),
+        ]);
+
+        let json = serde_json::to_string_pretty(&response).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let deserialized: CreateUsersResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response, deserialized);
+    }
+}

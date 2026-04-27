@@ -137,3 +137,44 @@ impl ListDatabasesError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_request() {
+        let request = Some(vec!["db1".into(), "db2".into()]);
+        let json = serde_json::to_string_pretty(&request).unwrap();
+        println!("Serialized request:\n{}", json);
+
+        let deserialized: ListDatabasesRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response: ListDatabasesResponse = vec![
+            (
+                "db1".into(),
+                Ok(DatabaseRow {
+                    database: "db1".into(),
+                    tables: vec!["table1".to_string(), "table2".to_string()],
+                    users: vec!["user1".into(), "user2".into()],
+                    collation: Some("utf8mb4_general_ci".to_string()),
+                    character_set: Some("utf8mb4".to_string()),
+                    size_bytes: 1024,
+                }),
+            ),
+            ("db2".into(), Err(ListDatabasesError::DatabaseDoesNotExist)),
+        ]
+        .into_iter()
+        .collect();
+
+        let json = serde_json::to_string_pretty(&response).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let deserialized: ListDatabasesResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response, deserialized);
+    }
+}

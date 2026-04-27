@@ -90,3 +90,37 @@ impl DropDatabaseError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_request() {
+        let request: DropDatabasesRequest = vec!["db1".into(), "db2".into(), "db3".into()];
+
+        let json = serde_json::to_string_pretty(&request).unwrap();
+        println!("Serialized request:\n{}", json);
+
+        let deserialized: DropDatabasesRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response: DropDatabasesResponse = BTreeMap::from([
+            ("db1".into(), Ok(())),
+            ("db2".into(), Err(DropDatabaseError::DatabaseDoesNotExist)),
+            (
+                "db3".into(),
+                Err(DropDatabaseError::MySqlError("Some MySQL error".into())),
+            ),
+        ]);
+
+        let json = serde_json::to_string_pretty(&response).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let deserialized: DropDatabasesResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response, deserialized);
+    }
+}

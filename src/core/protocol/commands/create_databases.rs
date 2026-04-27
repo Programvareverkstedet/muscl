@@ -87,3 +87,41 @@ impl CreateDatabaseError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_request() {
+        let request: CreateDatabasesRequest =
+            vec!["test_db1".into(), "test_db2".into(), "test_db3".into()];
+
+        let json = serde_json::to_string_pretty(&request).unwrap();
+        println!("Serialized request:\n{}", json);
+
+        let deserialized: CreateDatabasesRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response: CreateDatabasesResponse = BTreeMap::from([
+            ("test_db1".into(), Ok(())),
+            (
+                "test_db2".into(),
+                Err(CreateDatabaseError::DatabaseAlreadyExists),
+            ),
+            (
+                "test_db3".into(),
+                Err(CreateDatabaseError::MySqlError("Some MySQL error".into())),
+            ),
+        ]);
+
+        let json = serde_json::to_string_pretty(&response).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let deserialized: CreateDatabasesResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(response, deserialized);
+    }
+}

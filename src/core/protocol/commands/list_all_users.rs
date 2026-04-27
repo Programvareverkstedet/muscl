@@ -27,3 +27,37 @@ impl ListAllUsersError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response: ListAllUsersResponse = Ok(vec![
+            DatabaseUser {
+                user: "user1".into(),
+                host: "%".into(),
+                has_password: true,
+                is_locked: false,
+                databases: vec!["db1".into(), "db2".into()],
+            },
+            DatabaseUser {
+                user: "user2".into(),
+                host: "%".into(),
+                has_password: false,
+                is_locked: true,
+                databases: vec!["db3".into()],
+            },
+        ]);
+
+        let json = serde_json::to_string_pretty(&response).unwrap();
+        println!("Serialized response:\n{}", json);
+
+        let mut deserialized: ListAllUsersResponse = serde_json::from_str(&json).unwrap();
+        deserialized.as_mut().unwrap()[0].host = "%".into();
+        deserialized.as_mut().unwrap()[1].host = "%".into();
+
+        assert_eq!(response, deserialized);
+    }
+}

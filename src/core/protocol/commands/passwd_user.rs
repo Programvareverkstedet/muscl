@@ -60,3 +60,35 @@ impl SetPasswordError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_deserialize_request() {
+        let request: SetUserPasswordRequest = ("test_user".into(), "new_password".into());
+
+        let json = serde_json::to_string_pretty(&request).unwrap();
+        println!("Serialized request:\n{}", json);
+
+        let deserialized: SetUserPasswordRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_response() {
+        let response_ok: SetUserPasswordResponse = Ok(());
+        let response_err: SetUserPasswordResponse = Err(SetPasswordError::UserDoesNotExist);
+
+        let json_ok = serde_json::to_string_pretty(&response_ok).unwrap();
+        let json_err = serde_json::to_string_pretty(&response_err).unwrap();
+        println!("Serialized OK response:\n{}", json_ok);
+        println!("Serialized Error response:\n{}", json_err);
+
+        let deserialized_ok: SetUserPasswordResponse = serde_json::from_str(&json_ok).unwrap();
+        let deserialized_err: SetUserPasswordResponse = serde_json::from_str(&json_err).unwrap();
+        assert_eq!(response_ok, deserialized_ok);
+        assert_eq!(response_err, deserialized_err);
+    }
+}
