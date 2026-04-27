@@ -63,7 +63,7 @@ jobs:
       - name: Upload deb package artifact
         uses: actions/upload-artifact@v3
         with:
-          name: muscl-deb-${{ matrix.os }}-${{ gitea.sha }}.zip
+          name: muscl-deb-${{ matrix.os }}-${{ gitea.sha }}
           path: target/debian/*.deb
           if-no-files-found: error
           retention-days: 30
