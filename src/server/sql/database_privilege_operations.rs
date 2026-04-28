@@ -488,4 +488,13 @@ pub async fn apply_privilege_diffs(
     }
 
     results
+        .into_iter()
+        .map(|((k1, k2), v)| (k1, (k2, v)))
+        .into_group_map()
+        .into_iter()
+        .map(|(k1, pairs)| {
+            let inner = pairs.into_iter().collect::<BTreeMap<_, _>>();
+            (k1, inner)
+        })
+        .collect()
 }

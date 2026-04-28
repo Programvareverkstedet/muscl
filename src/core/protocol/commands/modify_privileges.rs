@@ -12,7 +12,7 @@ use crate::core::{
 pub type ModifyPrivilegesRequest = BTreeSet<DatabasePrivilegesDiff>;
 
 pub type ModifyPrivilegesResponse =
-    BTreeMap<(MySQLDatabase, MySQLUser), Result<(), ModifyDatabasePrivilegesError>>;
+    BTreeMap<MySQLDatabase, BTreeMap<MySQLUser, Result<(), ModifyDatabasePrivilegesError>>>;
 
 #[derive(Error, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ModifyDatabasePrivilegesError {
@@ -49,7 +49,11 @@ pub enum DiffDoesNotApplyError {
 }
 
 pub fn print_modify_database_privileges_output_status(output: &ModifyPrivilegesResponse) {
-    for ((database_name, username), result) in output {
+    for ((database_name, username), result) in output.iter().flat_map(|(db, user_map)| {
+        user_map
+            .iter()
+            .map(move |(user, result)| ((db, user), result))
+    }) {
         match result {
             Ok(()) => {
                 println!(
@@ -169,13 +173,16 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize_response() {
-        let response: ModifyPrivilegesResponse = BTreeMap::from([
-            (("test_db".into(), "test_user".into()), Ok(())),
-            (
-                ("test_db".into(), "invalid_user".into()),
-                Err(ModifyDatabasePrivilegesError::UserDoesNotExist),
-            ),
-        ]);
+        let response: ModifyPrivilegesResponse = BTreeMap::from([(
+            "test_db".into(),
+            BTreeMap::from([
+                ("test_user".into(), Ok(())),
+                (
+                    "invalid_user".into(),
+                    Err(ModifyDatabasePrivilegesError::UserDoesNotExist),
+                ),
+            ]),
+        )]);
 
         let json = serde_json::to_string_pretty(&response).unwrap();
         println!("Serialized response:\n{}", json);

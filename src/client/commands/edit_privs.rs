@@ -305,7 +305,7 @@ pub async fn edit_database_privileges(
 
     print_modify_database_privileges_output_status(&result);
 
-    if result.iter().any(|(_, res)| {
+    if result.values().flatten().any(|(_, res)| {
         matches!(
             res,
             Err(ModifyDatabasePrivilegesError::UserValidationError(
@@ -320,7 +320,7 @@ pub async fn edit_database_privileges(
 
     server_connection.send(Request::Exit).await?;
 
-    if result.values().any(std::result::Result::is_err) {
+    if result.values().flatten().any(|(_, res)| res.is_err()) {
         std::process::exit(1);
     }
 

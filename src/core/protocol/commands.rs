@@ -324,9 +324,12 @@ impl Response {
                 ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
             }
             Response::ListAllPrivileges(res) => ResponseOkStatus::from_bool(res.is_ok()),
-            Response::ModifyPrivileges(res) => {
-                ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
-            }
+            Response::ModifyPrivileges(res) => ResponseOkStatus::from_counts(
+                res.len(),
+                res.values()
+                    .map(|user_map| user_map.values().filter(|v| v.is_ok()).count())
+                    .sum(),
+            ),
 
             Response::CreateUsers(res) => {
                 ResponseOkStatus::from_counts(res.len(), res.values().filter(|v| v.is_ok()).count())
