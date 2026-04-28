@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.1
+
+Patch release with some important bug fixes
+
+### Notable changes
+
+- `mysql.db.Host` would usually be unset when creating privileges for users, this should be fixed now.
+  - You might have to manually set this field for rows created with the previous version of muscl to have those privileges work properly.
+- Fixed an issue where a few select server responses would refuse to serialize properly, leading to an error message: "No response from server"
+- The output of various commands is now being sorted.
+- Bump dependencies
+
 ## v1.0.0 - Initial Release
 
 This is the initial release of `muscl`.
