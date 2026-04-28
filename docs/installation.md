@@ -42,7 +42,7 @@ on the MySQL server as the admin user (or another user with sufficient privilege
 ```sql
 CREATE USER `muscl`@`localhost` IDENTIFIED BY '<strong_password_here>';
 GRANT SELECT, INSERT, UPDATE, DELETE ON `mysql`.* TO `muscl`@`localhost`;
-GRANT GRANT OPTION, CREATE, DROP ON *.* TO `muscl`@`localhost`;
+GRANT GRANT OPTION, CREATE, DROP, RELOAD ON *.* TO `muscl`@`localhost`;
 FLUSH PRIVILEGES;
 ```
 

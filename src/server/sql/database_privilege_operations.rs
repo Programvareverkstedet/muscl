@@ -487,6 +487,10 @@ pub async fn apply_privilege_diffs(
         results.insert(key, result);
     }
 
+    if let Err(err) = connection.execute("FLUSH PRIVILEGES").await {
+        tracing::error!("Failed to flush privileges: {}", err);
+    }
+
     results
         .into_iter()
         .map(|((k1, k2), v)| (k1, (k2, v)))
