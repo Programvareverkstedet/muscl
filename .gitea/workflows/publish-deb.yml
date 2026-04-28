@@ -31,7 +31,13 @@ jobs:
   build-deb:
     strategy:
       matrix:
-        os: [debian-trixie, debian-bookworm, ubuntu-resolute, ubuntu-noble, ubuntu-jammy]
+        os: [
+          debian-trixie,
+          debian-bookworm,
+          # ubuntu-resolute,
+          ubuntu-noble,
+          ubuntu-jammy,
+        ]
     name: Build and publish for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     steps:
