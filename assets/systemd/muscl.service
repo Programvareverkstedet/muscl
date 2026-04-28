@@ -9,6 +9,8 @@ ExecStart=/usr/bin/muscl-server --systemd --disable-landlock socket-activate
 ExecReload=/usr/bin/kill -HUP $MAINPID
 
 WatchdogSec=3min
+Restart=always
+RestartSec=10s
 
 # Although this is a multi-instance unit, the constant `User` field is needed
 # for authentication via mysql's auth_socket plugin to work.
