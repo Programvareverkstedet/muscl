@@ -52,7 +52,7 @@ declare -a OS_VARIANTS=(
 
 for variant in "${OS_VARIANTS[@]}"; do
     echo "Downloading and uploading debs for variant: $variant"
-    curl "https://git.pvv.ntnu.no/Projects/muscl/actions/runs/$RUN_NUMBER/artifacts/muscl-deb-$variant-$GIT_SHA.zip" --output "$TMPDIR/muscl-deb-$variant-$GIT_SHA.zip"
+    curl "https://git.pvv.ntnu.no/Projects/muscl/actions/runs/$RUN_NUMBER/artifacts/muscl-deb-$variant-$GIT_SHA" --output "$TMPDIR/muscl-deb-$variant-$GIT_SHA.zip"
 
     unzip "$TMPDIR/muscl-deb-$variant-$GIT_SHA.zip" -d "$TMPDIR/muscl-deb-$variant-$GIT_SHA"
 
