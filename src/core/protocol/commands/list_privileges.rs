@@ -64,25 +64,28 @@ pub fn print_list_privileges_output_status(output: &ListPrivilegesResponse, long
                 .collect(),
         ));
 
-        for (_database, rows) in final_privs_map {
-            for row in &rows {
-                table.add_row(row![
-                    row.db,
-                    row.user,
-                    c->yn(row.select_priv),
-                    c->yn(row.insert_priv),
-                    c->yn(row.update_priv),
-                    c->yn(row.delete_priv),
-                    c->yn(row.create_priv),
-                    c->yn(row.drop_priv),
-                    c->yn(row.alter_priv),
-                    c->yn(row.index_priv),
-                    c->yn(row.create_tmp_table_priv),
-                    c->yn(row.lock_tables_priv),
-                    c->yn(row.references_priv),
-                ]);
-            }
+        for row in final_privs_map
+            .values()
+            .flatten()
+            .sorted_by_key(|row| (&row.db, &row.user))
+        {
+            table.add_row(row![
+                row.db,
+                row.user,
+                c->yn(row.select_priv),
+                c->yn(row.insert_priv),
+                c->yn(row.update_priv),
+                c->yn(row.delete_priv),
+                c->yn(row.create_priv),
+                c->yn(row.drop_priv),
+                c->yn(row.alter_priv),
+                c->yn(row.index_priv),
+                c->yn(row.create_tmp_table_priv),
+                c->yn(row.lock_tables_priv),
+                c->yn(row.references_priv),
+            ]);
         }
+        // }
 
         table.printstd();
     }

@@ -61,7 +61,7 @@ pub fn print_list_databases_output_status(
                 "Size"
             }
         ]);
-        for db in final_database_list {
+        for db in final_database_list.iter().sorted_by_key(|db| &db.database) {
             table.add_row(row![
                 db.database,
                 db.tables.join("\n"),

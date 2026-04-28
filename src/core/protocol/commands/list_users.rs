@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use itertools::Itertools;
 use prettytable::Table;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -51,7 +52,7 @@ pub fn print_list_users_output_status(output: &ListUsersResponse) {
             "Locked",
             "Databases where user has privileges"
         ]);
-        for user in final_user_list {
+        for user in final_user_list.iter().sorted_by_key(|user| &user.user) {
             table.add_row(row![
                 user.user,
                 user.has_password,

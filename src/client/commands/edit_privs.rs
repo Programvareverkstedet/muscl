@@ -8,6 +8,7 @@ use clap::{Args, Parser};
 use clap_complete::ArgValueCompleter;
 use dialoguer::{Confirm, Editor};
 use futures_util::SinkExt;
+use itertools::Itertools;
 use nix::unistd::{User, getuid};
 use tokio_stream::StreamExt;
 
@@ -203,9 +204,13 @@ pub async fn edit_database_privileges(
                 }
             })
             .flatten()
+            .sorted_by_key(|row| (row.db.clone(), row.user.clone()))
             .collect::<Vec<_>>(),
         Some(Ok(Response::ListAllPrivileges(privilege_rows))) => match privilege_rows {
-            Ok(list) => list,
+            Ok(list) => list
+                .into_iter()
+                .sorted_by_key(|row| (row.db.clone(), row.user.clone()))
+                .collect(),
             Err(err) => {
                 server_connection.send(Request::Exit).await?;
                 return Err(anyhow::anyhow!(err.to_error_message())
