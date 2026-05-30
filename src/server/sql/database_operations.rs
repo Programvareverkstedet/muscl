@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use sqlx::AssertSqlSafe;
 use sqlx::MySqlConnection;
 use sqlx::prelude::*;
 
@@ -125,12 +126,15 @@ pub async fn create_databases(
             _ => {}
         }
 
-        let result =
-            sqlx::query(format!("CREATE DATABASE {}", quote_identifier(&database_name)).as_str())
-                .execute(&mut *connection)
-                .await
-                .map(|_| ())
-                .map_err(|err| CreateDatabaseError::MySqlError(err.to_string()));
+        let statement = AssertSqlSafe(format!(
+            "CREATE DATABASE {}",
+            quote_identifier(&database_name)
+        ));
+        let result = sqlx::query(statement)
+            .execute(&mut *connection)
+            .await
+            .map(|_| ())
+            .map_err(|err| CreateDatabaseError::MySqlError(err.to_string()));
 
         if let Err(err) = &result {
             tracing::error!("Failed to create database '{}': {:?}", &database_name, err);
@@ -181,12 +185,15 @@ pub async fn drop_databases(
             _ => {}
         }
 
-        let result =
-            sqlx::query(format!("DROP DATABASE {}", quote_identifier(&database_name)).as_str())
-                .execute(&mut *connection)
-                .await
-                .map(|_| ())
-                .map_err(|err| DropDatabaseError::MySqlError(err.to_string()));
+        let statement = AssertSqlSafe(format!(
+            "DROP DATABASE {}",
+            quote_identifier(&database_name)
+        ));
+        let result = sqlx::query(statement)
+            .execute(&mut *connection)
+            .await
+            .map(|_| ())
+            .map_err(|err| DropDatabaseError::MySqlError(err.to_string()));
 
         if let Err(err) = &result {
             tracing::error!("Failed to drop database '{}': {:?}", &database_name, err);

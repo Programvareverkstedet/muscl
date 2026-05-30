@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use indoc::indoc;
 use itertools::Itertools;
-use sqlx::{MySqlConnection, mysql::MySqlRow, prelude::*};
+use sqlx::{AssertSqlSafe, MySqlConnection, mysql::MySqlRow, prelude::*};
 
 use crate::{
     core::{
@@ -84,16 +84,17 @@ async fn unsafe_get_database_privileges(
     database_name: &str,
     connection: &mut MySqlConnection,
 ) -> Result<Vec<DatabasePrivilegeRow>, sqlx::Error> {
-    let result = sqlx::query_as::<_, DatabasePrivilegeRow>(&format!(
+    let statement = AssertSqlSafe(format!(
         "SELECT {} FROM `db` WHERE `Db` = ?",
         DATABASE_PRIVILEGE_FIELDS
             .iter()
             .map(|field| quote_identifier(field))
             .join(","),
-    ))
-    .bind(database_name)
-    .fetch_all(connection)
-    .await;
+    ));
+    let result = sqlx::query_as::<_, DatabasePrivilegeRow>(statement)
+        .bind(database_name)
+        .fetch_all(connection)
+        .await;
 
     if let Err(e) = &result {
         tracing::error!(
@@ -113,17 +114,18 @@ pub async fn unsafe_get_database_privileges_for_db_user_pair(
     user_name: &MySQLUser,
     connection: &mut MySqlConnection,
 ) -> Result<Option<DatabasePrivilegeRow>, sqlx::Error> {
-    let result = sqlx::query_as::<_, DatabasePrivilegeRow>(&format!(
+    let statement = AssertSqlSafe(format!(
         "SELECT {} FROM `db` WHERE `Db` = ? AND `User` = ? AND `Host` = '%'",
         DATABASE_PRIVILEGE_FIELDS
             .iter()
             .map(|field| quote_identifier(field))
             .join(","),
-    ))
-    .bind(database_name.as_str())
-    .bind(user_name.as_str())
-    .fetch_optional(connection)
-    .await;
+    ));
+    let result = sqlx::query_as::<_, DatabasePrivilegeRow>(statement)
+        .bind(database_name.as_str())
+        .bind(user_name.as_str())
+        .fetch_optional(connection)
+        .await;
 
     if let Err(e) = &result {
         tracing::error!(
@@ -189,8 +191,8 @@ pub async fn get_databases_privilege_data(
 }
 
 /// TODO: make this constant
-fn get_all_db_privs_query() -> String {
-    format!(
+fn get_all_db_privs_query() -> AssertSqlSafe<String> {
+    AssertSqlSafe(format!(
         indoc! {r"
             SELECT {} FROM `db` WHERE `db` IN
             (SELECT DISTINCT CAST(`SCHEMA_NAME` AS CHAR(64)) AS `database`
@@ -202,7 +204,7 @@ fn get_all_db_privs_query() -> String {
             .iter()
             .map(|field| quote_identifier(field))
             .join(","),
-    )
+    ))
 }
 
 /// Get all database + user + privileges pairs that are owned by the current user.
@@ -212,7 +214,7 @@ pub async fn get_all_database_privileges(
     _db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
 ) -> ListAllPrivilegesResponse {
-    let result = sqlx::query_as::<_, DatabasePrivilegeRow>(&get_all_db_privs_query())
+    let result = sqlx::query_as::<_, DatabasePrivilegeRow>(get_all_db_privs_query())
         .bind(create_user_group_matching_regex(unix_user, group_denylist))
         .fetch_all(connection)
         .await
@@ -241,7 +243,10 @@ async fn unsafe_apply_privilege_diff(
             let question_marks =
                 std::iter::repeat_n("?", DATABASE_PRIVILEGE_FIELDS.len() + 1).join(",");
 
-            sqlx::query(format!("INSERT INTO `db` ({tables}) VALUES ({question_marks})").as_str())
+            let statement = AssertSqlSafe(format!(
+                "INSERT INTO `db` ({tables}) VALUES ({question_marks})"
+            ));
+            sqlx::query(statement)
                 .bind(p.db.to_string())
                 .bind(p.user.to_string())
                 .bind(yn(p.select_priv))
@@ -280,27 +285,27 @@ async fn unsafe_apply_privilege_diff(
                 }
             }
 
-            sqlx::query(
-                format!("UPDATE `db` SET {changes} WHERE `Db` = ? AND `User` = ? AND `Host` = ?")
-                    .as_str(),
-            )
-            .bind(p.select_priv.map(change_to_yn))
-            .bind(p.insert_priv.map(change_to_yn))
-            .bind(p.update_priv.map(change_to_yn))
-            .bind(p.delete_priv.map(change_to_yn))
-            .bind(p.create_priv.map(change_to_yn))
-            .bind(p.drop_priv.map(change_to_yn))
-            .bind(p.alter_priv.map(change_to_yn))
-            .bind(p.index_priv.map(change_to_yn))
-            .bind(p.create_tmp_table_priv.map(change_to_yn))
-            .bind(p.lock_tables_priv.map(change_to_yn))
-            .bind(p.references_priv.map(change_to_yn))
-            .bind(p.db.to_string())
-            .bind(p.user.to_string())
-            .bind("%")
-            .execute(connection)
-            .await
-            .map(|_| ())
+            let statement = AssertSqlSafe(format!(
+                "UPDATE `db` SET {changes} WHERE `Db` = ? AND `User` = ? AND `Host` = ?"
+            ));
+            sqlx::query(statement)
+                .bind(p.select_priv.map(change_to_yn))
+                .bind(p.insert_priv.map(change_to_yn))
+                .bind(p.update_priv.map(change_to_yn))
+                .bind(p.delete_priv.map(change_to_yn))
+                .bind(p.create_priv.map(change_to_yn))
+                .bind(p.drop_priv.map(change_to_yn))
+                .bind(p.alter_priv.map(change_to_yn))
+                .bind(p.index_priv.map(change_to_yn))
+                .bind(p.create_tmp_table_priv.map(change_to_yn))
+                .bind(p.lock_tables_priv.map(change_to_yn))
+                .bind(p.references_priv.map(change_to_yn))
+                .bind(p.db.to_string())
+                .bind(p.user.to_string())
+                .bind("%")
+                .execute(connection)
+                .await
+                .map(|_| ())
         }
         DatabasePrivilegesDiff::Deleted(p) => {
             sqlx::query("DELETE FROM `db` WHERE `Db` = ? AND `User` = ? AND `Host` = ?")

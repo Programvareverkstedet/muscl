@@ -1,5 +1,6 @@
 use indoc::formatdoc;
 use itertools::Itertools;
+use sqlx::AssertSqlSafe;
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -126,7 +127,8 @@ pub async fn create_database_users(
             _ => {}
         }
 
-        let result = sqlx::query(format!("CREATE USER {}@'%'", quote_literal(&db_user),).as_str())
+        let statement = AssertSqlSafe(format!("CREATE USER {}@'%'", quote_literal(&db_user),));
+        let result = sqlx::query(statement)
             .execute(&mut *connection)
             .await
             .map(|_| ())
@@ -172,7 +174,8 @@ pub async fn drop_database_users(
             _ => {}
         }
 
-        let result = sqlx::query(format!("DROP USER {}@'%'", quote_literal(&db_user),).as_str())
+        let statement = AssertSqlSafe(format!("DROP USER {}@'%'", quote_literal(&db_user),));
+        let result = sqlx::query(statement)
             .execute(&mut *connection)
             .await
             .map(|_| ())
@@ -205,18 +208,16 @@ pub async fn set_password_for_database_user(
         _ => {}
     }
 
-    let result = sqlx::query(
-        format!(
-            "ALTER USER {}@'%' IDENTIFIED BY {}",
-            quote_literal(db_user),
-            quote_literal(password).as_str(),
-        )
-        .as_str(),
-    )
-    .execute(&mut *connection)
-    .await
-    .map(|_| ())
-    .map_err(|err| SetPasswordError::MySqlError(err.to_string()));
+    let statement = AssertSqlSafe(format!(
+        "ALTER USER {}@'%' IDENTIFIED BY {}",
+        quote_literal(db_user),
+        quote_literal(password).as_str(),
+    ));
+    let result = sqlx::query(statement)
+        .execute(&mut *connection)
+        .await
+        .map(|_| ())
+        .map_err(|err| SetPasswordError::MySqlError(err.to_string()));
 
     if result.is_err() {
         tracing::error!(
@@ -315,13 +316,15 @@ pub async fn lock_database_users(
             }
         }
 
-        let result = sqlx::query(
-            format!("ALTER USER {}@'%' ACCOUNT LOCK", quote_literal(&db_user),).as_str(),
-        )
-        .execute(&mut *connection)
-        .await
-        .map(|_| ())
-        .map_err(|err| LockUserError::MySqlError(err.to_string()));
+        let statement = AssertSqlSafe(format!(
+            "ALTER USER {}@'%' ACCOUNT LOCK",
+            quote_literal(&db_user),
+        ));
+        let result = sqlx::query(statement)
+            .execute(&mut *connection)
+            .await
+            .map(|_| ())
+            .map_err(|err| LockUserError::MySqlError(err.to_string()));
 
         if let Err(err) = &result {
             tracing::error!("Failed to lock database user '{}': {:?}", &db_user, err);
@@ -375,13 +378,15 @@ pub async fn unlock_database_users(
             _ => {}
         }
 
-        let result = sqlx::query(
-            format!("ALTER USER {}@'%' ACCOUNT UNLOCK", quote_literal(&db_user),).as_str(),
-        )
-        .execute(&mut *connection)
-        .await
-        .map(|_| ())
-        .map_err(|err| UnlockUserError::MySqlError(err.to_string()));
+        let statement = AssertSqlSafe(format!(
+            "ALTER USER {}@'%' ACCOUNT UNLOCK",
+            quote_literal(&db_user),
+        ));
+        let result = sqlx::query(statement)
+            .execute(&mut *connection)
+            .await
+            .map(|_| ())
+            .map_err(|err| UnlockUserError::MySqlError(err.to_string()));
 
         if let Err(err) = &result {
             tracing::error!("Failed to unlock database user '{}': {:?}", &db_user, err);
@@ -459,16 +464,17 @@ pub async fn list_database_users(
             continue;
         }
 
-        let mut result = sqlx::query_as::<_, DatabaseUser>(
-            &(if db_is_mariadb {
+        let statement = AssertSqlSafe(
+            if db_is_mariadb {
                 DB_USER_SELECT_STATEMENT_MARIADB.to_string()
             } else {
                 DB_USER_SELECT_STATEMENT_MYSQL.to_string()
-            } + "WHERE `mysql`.`user`.`User` = ? AND `mysql`.`user`.`Host` = '%'"),
-        )
-        .bind(db_user.as_str())
-        .fetch_optional(&mut *connection)
-        .await;
+            } + "WHERE `mysql`.`user`.`User` = ? AND `mysql`.`user`.`Host` = '%'",
+        );
+        let mut result = sqlx::query_as::<_, DatabaseUser>(statement)
+            .bind(db_user.as_str())
+            .fetch_optional(&mut *connection)
+            .await;
 
         if let Err(err) = &result {
             tracing::error!("Failed to list database user '{}': {:?}", &db_user, err);
@@ -496,17 +502,18 @@ pub async fn list_all_database_users_for_unix_user(
     db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
 ) -> ListAllUsersResponse {
-    let mut result = sqlx::query_as::<_, DatabaseUser>(
-        &(if db_is_mariadb {
+    let statement = AssertSqlSafe(
+        if db_is_mariadb {
             DB_USER_SELECT_STATEMENT_MARIADB.to_string()
         } else {
             DB_USER_SELECT_STATEMENT_MYSQL.to_string()
-        } + "WHERE `user`.`User` REGEXP ? AND `user`.`Host` = '%'"),
-    )
-    .bind(create_user_group_matching_regex(unix_user, group_denylist))
-    .fetch_all(&mut *connection)
-    .await
-    .map_err(|err| ListAllUsersError::MySqlError(err.to_string()));
+        } + "WHERE `user`.`User` REGEXP ? AND `user`.`Host` = '%'",
+    );
+    let mut result = sqlx::query_as::<_, DatabaseUser>(statement)
+        .bind(create_user_group_matching_regex(unix_user, group_denylist))
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|err| ListAllUsersError::MySqlError(err.to_string()));
 
     if let Err(err) = &result {
         tracing::error!("Failed to list all database users: {:?}", err);
@@ -531,23 +538,21 @@ pub async fn set_databases_where_user_has_privileges(
     db_user: &mut DatabaseUser,
     connection: &mut MySqlConnection,
 ) -> Result<(), sqlx::Error> {
-    let database_list = sqlx::query(
-        formatdoc!(
-            r"
-                SELECT `Db` AS `database`
-                FROM `db`
-                WHERE `User` = ?  AND `Host` = '%' AND ({})
-            ",
-            DATABASE_PRIVILEGE_FIELDS
-                .iter()
-                .map(|field| format!("`{field}` = 'Y'"))
-                .join(" OR "),
-        )
-        .as_str(),
-    )
-    .bind(db_user.user.as_str())
-    .fetch_all(&mut *connection)
-    .await;
+    let statement = AssertSqlSafe(formatdoc!(
+        r"
+            SELECT `Db` AS `database`
+            FROM `db`
+            WHERE `User` = ?  AND `Host` = '%' AND ({})
+        ",
+        DATABASE_PRIVILEGE_FIELDS
+            .iter()
+            .map(|field| format!("`{field}` = 'Y'"))
+            .join(" OR "),
+    ));
+    let database_list = sqlx::query(statement)
+        .bind(db_user.user.as_str())
+        .fetch_all(&mut *connection)
+        .await;
 
     if let Err(err) = &database_list {
         tracing::error!(
