@@ -272,25 +272,48 @@ pub async fn list_databases(
         let result = sqlx::query_as::<_, DatabaseRow>(
             r"
                 SELECT
-                  CAST(`information_schema`.`SCHEMATA`.`SCHEMA_NAME` AS CHAR(64)) AS `database`,
-                  GROUP_CONCAT(DISTINCT CAST(`information_schema`.`TABLES`.`TABLE_NAME` AS CHAR(64)) SEPARATOR ',') AS `tables`,
-                  GROUP_CONCAT(DISTINCT CAST(`mysql`.`db`.`User` AS CHAR(64)) SEPARATOR ',') AS `users`,
-                  MAX(`information_schema`.`SCHEMATA`.`DEFAULT_COLLATION_NAME`) AS `collation`,
-                  MAX(`information_schema`.`SCHEMATA`.`DEFAULT_CHARACTER_SET_NAME`) AS `character_set`,
-                  CAST(IFNULL(
-                    SUM(`information_schema`.`TABLES`.`DATA_LENGTH` + `information_schema`.`TABLES`.`INDEX_LENGTH`),
-                    0
-                  ) AS UNSIGNED INTEGER) AS `size_bytes`
-                FROM `information_schema`.`SCHEMATA`
-                LEFT OUTER JOIN `information_schema`.`TABLES`
-                  ON `information_schema`.`SCHEMATA`.`SCHEMA_NAME` = `TABLES`.`TABLE_SCHEMA`
-                LEFT OUTER JOIN `mysql`.`db`
-                  ON `information_schema`.`SCHEMATA`.`SCHEMA_NAME` = `mysql`.`db`.`DB`
-                WHERE `information_schema`.`SCHEMATA`.`SCHEMA_NAME` = ?
-                GROUP BY `information_schema`.`SCHEMATA`.`SCHEMA_NAME`
-            ",
+                    CAST(s.SCHEMA_NAME AS CHAR(64)) AS `database`,
+                    t.tables,
+                    u.users,
+                    s.DEFAULT_COLLATION_NAME AS `collation`,
+                    s.DEFAULT_CHARACTER_SET_NAME AS `character_set`,
+                    CAST(COALESCE(t.size_bytes, 0) AS UNSIGNED) AS `size_bytes`
+                FROM information_schema.SCHEMATA s
 
+                LEFT JOIN (
+                    SELECT
+                        TABLE_SCHEMA,
+                        GROUP_CONCAT(
+                            DISTINCT CAST(TABLE_NAME AS CHAR(64))
+                            ORDER BY TABLE_NAME
+                            SEPARATOR ','
+                        ) AS tables,
+                        SUM(DATA_LENGTH + INDEX_LENGTH) AS size_bytes
+                    FROM information_schema.TABLES
+                    WHERE TABLE_SCHEMA = ?
+                    GROUP BY TABLE_SCHEMA
+                ) t
+                    ON t.TABLE_SCHEMA = s.SCHEMA_NAME
+
+                LEFT JOIN (
+                    SELECT
+                        DB,
+                        GROUP_CONCAT(
+                            DISTINCT CAST(User AS CHAR(64))
+                            ORDER BY User
+                            SEPARATOR ','
+                        ) AS users
+                    FROM mysql.db
+                    WHERE DB = ?
+                    GROUP BY DB
+                ) u
+                    ON u.DB = s.SCHEMA_NAME
+
+                WHERE s.SCHEMA_NAME = ?;
+            ",
         )
+        .bind(database_name.to_string())
+        .bind(database_name.to_string())
         .bind(database_name.to_string())
         .fetch_optional(&mut *connection)
         .await
@@ -320,25 +343,56 @@ pub async fn list_all_databases_for_user(
     let result = sqlx::query_as::<_, DatabaseRow>(
         r"
           SELECT
-            CAST(`information_schema`.`SCHEMATA`.`SCHEMA_NAME` AS CHAR(64)) AS `database`,
-            GROUP_CONCAT(DISTINCT CAST(`information_schema`.`TABLES`.`TABLE_NAME` AS CHAR(64)) SEPARATOR ',') AS `tables`,
-            GROUP_CONCAT(DISTINCT CAST(`mysql`.`db`.`User` AS CHAR(64)) SEPARATOR ',') AS `users`,
-            MAX(`information_schema`.`SCHEMATA`.`DEFAULT_COLLATION_NAME`) AS `collation`,
-            MAX(`information_schema`.`SCHEMATA`.`DEFAULT_CHARACTER_SET_NAME`) AS `character_set`,
-            CAST(IFNULL(
-              SUM(`information_schema`.`TABLES`.`DATA_LENGTH` + `information_schema`.`TABLES`.`INDEX_LENGTH`),
-              0
-            ) AS UNSIGNED INTEGER) AS `size_bytes`
-          FROM `information_schema`.`SCHEMATA`
-          LEFT OUTER JOIN `information_schema`.`TABLES`
-            ON `information_schema`.`SCHEMATA`.`SCHEMA_NAME` = `TABLES`.`TABLE_SCHEMA`
-          LEFT OUTER JOIN `mysql`.`db`
-            ON `information_schema`.`SCHEMATA`.`SCHEMA_NAME` = `mysql`.`db`.`DB`
-          WHERE `information_schema`.`SCHEMATA`.`SCHEMA_NAME` NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
-            AND `information_schema`.`SCHEMATA`.`SCHEMA_NAME` REGEXP ?
-          GROUP BY `information_schema`.`SCHEMATA`.`SCHEMA_NAME`
+              CAST(s.SCHEMA_NAME AS CHAR(64)) AS `database`,
+              t.tables,
+              u.users,
+              s.DEFAULT_COLLATION_NAME AS collation,
+              s.DEFAULT_CHARACTER_SET_NAME AS character_set,
+              CAST(COALESCE(t.size_bytes, 0) AS UNSIGNED) AS size_bytes
+          FROM information_schema.SCHEMATA s
+
+          LEFT JOIN (
+              SELECT
+                  TABLE_SCHEMA,
+                  GROUP_CONCAT(
+                      DISTINCT CAST(TABLE_NAME AS CHAR(64))
+                      ORDER BY TABLE_NAME
+                      SEPARATOR ','
+                  ) AS tables,
+                  SUM(DATA_LENGTH + INDEX_LENGTH) AS size_bytes
+              FROM information_schema.TABLES
+              WHERE TABLE_SCHEMA REGEXP ?
+              GROUP BY TABLE_SCHEMA
+          ) t
+              ON t.TABLE_SCHEMA = s.SCHEMA_NAME
+
+          LEFT JOIN (
+              SELECT
+                  DB,
+                  GROUP_CONCAT(
+                      DISTINCT CAST(User AS CHAR(64))
+                      ORDER BY User
+                      SEPARATOR ','
+                  ) AS users
+              FROM mysql.db
+              WHERE DB REGEXP ?
+              GROUP BY DB
+          ) u
+              ON u.DB = s.SCHEMA_NAME
+
+          WHERE s.SCHEMA_NAME REGEXP ?
+          AND s.SCHEMA_NAME NOT IN (
+              'information_schema',
+              'performance_schema',
+              'mysql',
+              'sys'
+          )
+
+          ORDER BY s.SCHEMA_NAME
         ",
     )
+    .bind(create_user_group_matching_regex(unix_user, group_denylist))
+    .bind(create_user_group_matching_regex(unix_user, group_denylist))
     .bind(create_user_group_matching_regex(unix_user, group_denylist))
     .fetch_all(connection)
     .await
