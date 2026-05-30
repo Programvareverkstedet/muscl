@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.0.2
+
+Patch release with an important bug fix
+
+### Notable changes
+
+- Run `FLUSH PRIVILEGES` on the server whenever users modify privileges.
+  - You will have to grant `RELOAD` for the muscl admin user on all databases, see the [installation docs](./docs/installation.md) for details.
+- Bump dependencies
+
 ## v1.0.1
 
 Patch release with some important bug fixes
