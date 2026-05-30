@@ -14,7 +14,21 @@ use crate::{
     server::sql::database_operations::DatabaseRow,
 };
 
-pub type ListDatabasesRequest = Option<Vec<MySQLDatabase>>;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListDatabasesRequest {
+    pub names: Option<Vec<MySQLDatabase>>,
+    #[serde(default)]
+    pub include_all_tables_and_users: bool,
+}
+
+impl ListDatabasesRequest {
+    pub fn new(names: Option<Vec<MySQLDatabase>>, include_all_tables_and_users: bool) -> Self {
+        Self {
+            names,
+            include_all_tables_and_users,
+        }
+    }
+}
 
 pub type ListDatabasesResponse = BTreeMap<MySQLDatabase, Result<DatabaseRow, ListDatabasesError>>;
 
@@ -28,6 +42,24 @@ pub enum ListDatabasesError {
 
     #[error("MySQL error: {0}")]
     MySqlError(String),
+}
+
+fn format_possibly_truncated_list<'a>(
+    items: impl Iterator<Item = &'a str>,
+    total_count: u64,
+) -> String {
+    let items: Vec<&str> = items.collect();
+    let mut joined = items.join("\n");
+
+    let remaining = total_count.saturating_sub(items.len() as u64);
+    if remaining > 0 {
+        if !joined.is_empty() {
+            joined.push('\n');
+        }
+        joined.push_str(&format!("... ({remaining} more)"));
+    }
+
+    joined
 }
 
 pub fn print_list_databases_output_status(
@@ -64,8 +96,14 @@ pub fn print_list_databases_output_status(
         for db in final_database_list.iter().sorted_by_key(|db| &db.database) {
             table.add_row(row![
                 db.database,
-                db.tables.join("\n"),
-                db.users.iter().map(|user| user.as_str()).join("\n"),
+                format_possibly_truncated_list(
+                    db.tables.iter().map(String::as_str),
+                    db.table_count
+                ),
+                format_possibly_truncated_list(
+                    db.users.iter().map(|user| user.as_str()),
+                    db.user_count
+                ),
                 db.collation.as_deref().unwrap_or("N/A"),
                 db.character_set.as_deref().unwrap_or("N/A"),
                 if display_size_as_bytes {
@@ -89,7 +127,9 @@ pub fn print_list_databases_output_status_json(output: &ListDatabasesResponse) {
                 json!({
                   "status": "success",
                   "tables": row.tables,
+                  "table_count": row.table_count,
                   "users": row.users,
+                  "user_count": row.user_count,
                   "collation": row.collation,
                   "character_set": row.character_set,
                   "size_bytes": row.size_bytes,
@@ -143,8 +183,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_format_possibly_truncated_list() {
+        assert_eq!(format_possibly_truncated_list([].into_iter(), 0), "");
+
+        assert_eq!(
+            format_possibly_truncated_list(["a", "b"].into_iter(), 2),
+            "a\nb"
+        );
+
+        assert_eq!(
+            format_possibly_truncated_list(["a", "b"].into_iter(), 5),
+            "a\nb\n... (3 more)"
+        );
+
+        assert_eq!(
+            format_possibly_truncated_list([].into_iter(), 5),
+            "... (5 more)"
+        );
+    }
+
+    #[test]
     fn test_serialize_deserialize_request() {
-        let request = Some(vec!["db1".into(), "db2".into()]);
+        let request = ListDatabasesRequest::new(Some(vec!["db1".into(), "db2".into()]), true);
         let json = serde_json::to_string_pretty(&request).unwrap();
         println!("Serialized request:\n{}", json);
 
@@ -160,7 +220,9 @@ mod tests {
                 Ok(DatabaseRow {
                     database: "db1".into(),
                     tables: vec!["table1".to_string(), "table2".to_string()],
+                    table_count: 2,
                     users: vec!["user1".into(), "user2".into()],
+                    user_count: 2,
                     collation: Some("utf8mb4_general_ci".to_string()),
                     character_set: Some("utf8mb4".to_string()),
                     size_bytes: 1024,

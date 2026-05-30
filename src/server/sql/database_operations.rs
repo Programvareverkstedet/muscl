@@ -24,6 +24,8 @@ use crate::{
     server::{common::create_user_group_matching_regex, sql::quote_identifier},
 };
 
+const MAX_SHOW_DB_RELATED_ITEMS: usize = 5;
+
 // NOTE: this function is unsafe because it does no input validation.
 pub(super) async fn unsafe_database_exists(
     database_name: &str,
@@ -209,7 +211,9 @@ pub async fn drop_databases(
 pub struct DatabaseRow {
     pub database: MySQLDatabase,
     pub tables: Vec<String>,
+    pub table_count: u64,
     pub users: Vec<MySQLUser>,
+    pub user_count: u64,
     pub collation: Option<String>,
     pub character_set: Option<String>,
     pub size_bytes: u64,
@@ -230,6 +234,7 @@ impl FromRow<'_, sqlx::mysql::MySqlRow> for DatabaseRow {
                 })
                 .unwrap_or_default()
             },
+            table_count: row.try_get::<u64, _>("table_count")?,
             users: {
                 let s: Option<String> = row.try_get("users")?;
                 s.and_then(|s| {
@@ -241,11 +246,96 @@ impl FromRow<'_, sqlx::mysql::MySqlRow> for DatabaseRow {
                 })
                 .unwrap_or_default()
             },
+            user_count: row.try_get::<u64, _>("user_count")?,
             collation: row.try_get::<Option<String>, _>("collation")?,
             character_set: row.try_get::<Option<String>, _>("character_set")?,
             size_bytes: row.try_get::<u64, _>("size_bytes")?,
         })
     }
+}
+
+fn list_database_query(include_all_tables_and_users: bool) -> AssertSqlSafe<String> {
+    let limit_clause = if include_all_tables_and_users {
+        "".to_string()
+    } else {
+        format!(" LIMIT {}", MAX_SHOW_DB_RELATED_ITEMS)
+    };
+
+    AssertSqlSafe(format!(
+        r"
+            SELECT
+                CAST(s.SCHEMA_NAME AS CHAR(64)) AS `database`,
+                t.tables,
+                CAST(COALESCE(sz.table_count, 0) AS UNSIGNED) AS table_count,
+                u.users,
+                CAST(COALESCE(uc.user_count, 0) AS UNSIGNED) AS user_count,
+                s.DEFAULT_COLLATION_NAME AS `collation`,
+                s.DEFAULT_CHARACTER_SET_NAME AS `character_set`,
+                CAST(COALESCE(sz.size_bytes, 0) AS UNSIGNED) AS size_bytes
+            FROM information_schema.SCHEMATA s
+
+            LEFT JOIN (
+                SELECT
+                    x.TABLE_SCHEMA,
+                    GROUP_CONCAT(x.TABLE_NAME ORDER BY x.TABLE_NAME SEPARATOR ',') AS tables
+                FROM (
+                    SELECT
+                        TABLE_SCHEMA,
+                        TABLE_NAME
+                    FROM information_schema.TABLES
+                    WHERE TABLE_SCHEMA = ?
+                    ORDER BY TABLE_NAME{limit_clause}
+                ) x
+                GROUP BY x.TABLE_SCHEMA
+            ) t
+                ON t.TABLE_SCHEMA = s.SCHEMA_NAME
+
+            LEFT JOIN (
+                SELECT
+                    x.DB,
+                    GROUP_CONCAT(x.User ORDER BY x.User SEPARATOR ',') AS users
+                FROM (
+                    SELECT DISTINCT
+                        DB,
+                        User
+                    FROM mysql.db
+                    WHERE DB = ?
+                    ORDER BY User{limit_clause}
+                ) x
+                GROUP BY x.DB
+            ) u
+                ON u.DB = s.SCHEMA_NAME
+
+            LEFT JOIN (
+                SELECT
+                    TABLE_SCHEMA,
+                    SUM(DATA_LENGTH + INDEX_LENGTH) AS size_bytes,
+                    COUNT(*) AS table_count
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = ?
+                GROUP BY TABLE_SCHEMA
+            ) sz
+                ON sz.TABLE_SCHEMA = s.SCHEMA_NAME
+
+            LEFT JOIN (
+                SELECT
+                    DB,
+                    COUNT(DISTINCT User) AS user_count
+                FROM mysql.db
+                WHERE DB = ?
+                GROUP BY DB
+            ) uc
+                ON uc.DB = s.SCHEMA_NAME
+
+            WHERE s.SCHEMA_NAME REGEXP ?
+            AND s.SCHEMA_NAME NOT IN (
+                'information_schema',
+                'performance_schema',
+                'mysql',
+                'sys'
+            )
+        "
+    ))
 }
 
 pub async fn list_databases(
@@ -254,6 +344,7 @@ pub async fn list_databases(
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
+    include_all_tables_and_users: bool,
 ) -> ListDatabasesResponse {
     let mut results = BTreeMap::new();
 
@@ -269,58 +360,20 @@ pub async fn list_databases(
             continue;
         }
 
-        let result = sqlx::query_as::<_, DatabaseRow>(
-            r"
-                SELECT
-                    CAST(s.SCHEMA_NAME AS CHAR(64)) AS `database`,
-                    t.tables,
-                    u.users,
-                    s.DEFAULT_COLLATION_NAME AS `collation`,
-                    s.DEFAULT_CHARACTER_SET_NAME AS `character_set`,
-                    CAST(COALESCE(t.size_bytes, 0) AS UNSIGNED) AS `size_bytes`
-                FROM information_schema.SCHEMATA s
+        let query = list_database_query(include_all_tables_and_users);
 
-                LEFT JOIN (
-                    SELECT
-                        TABLE_SCHEMA,
-                        GROUP_CONCAT(
-                            DISTINCT CAST(TABLE_NAME AS CHAR(64))
-                            ORDER BY TABLE_NAME
-                            SEPARATOR ','
-                        ) AS tables,
-                        SUM(DATA_LENGTH + INDEX_LENGTH) AS size_bytes
-                    FROM information_schema.TABLES
-                    WHERE TABLE_SCHEMA = ?
-                    GROUP BY TABLE_SCHEMA
-                ) t
-                    ON t.TABLE_SCHEMA = s.SCHEMA_NAME
-
-                LEFT JOIN (
-                    SELECT
-                        DB,
-                        GROUP_CONCAT(
-                            DISTINCT CAST(User AS CHAR(64))
-                            ORDER BY User
-                            SEPARATOR ','
-                        ) AS users
-                    FROM mysql.db
-                    WHERE DB = ?
-                    GROUP BY DB
-                ) u
-                    ON u.DB = s.SCHEMA_NAME
-
-                WHERE s.SCHEMA_NAME = ?;
-            ",
-        )
-        .bind(database_name.to_string())
-        .bind(database_name.to_string())
-        .bind(database_name.to_string())
-        .fetch_optional(&mut *connection)
-        .await
-        .map_err(|err| ListDatabasesError::MySqlError(err.to_string()))
-        .and_then(|database| {
-            database.map_or_else(|| Err(ListDatabasesError::DatabaseDoesNotExist), Ok)
-        });
+        let result = sqlx::query_as::<_, DatabaseRow>(query)
+            .bind(database_name.to_string())
+            .bind(database_name.to_string())
+            .bind(database_name.to_string())
+            .bind(database_name.to_string())
+            .bind(database_name.to_string())
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(|err| ListDatabasesError::MySqlError(err.to_string()))
+            .and_then(|database| {
+                database.map_or_else(|| Err(ListDatabasesError::DatabaseDoesNotExist), Ok)
+            });
 
         if let Err(err) = &result {
             tracing::error!("Failed to list database '{}': {:?}", &database_name, err);
@@ -334,69 +387,116 @@ pub async fn list_databases(
     results
 }
 
+fn list_all_databases_for_user_query(include_all_tables_and_users: bool) -> AssertSqlSafe<String> {
+    let row_limit_clause = if include_all_tables_and_users {
+        String::new()
+    } else {
+        format!("WHERE row_num <= {MAX_SHOW_DB_RELATED_ITEMS}")
+    };
+
+    AssertSqlSafe(format!(
+        r"
+            SELECT
+                CAST(s.SCHEMA_NAME AS CHAR(64)) AS `database`,
+                t.tables,
+                CAST(COALESCE(sz.table_count, 0) AS UNSIGNED) AS table_count,
+                u.users,
+                CAST(COALESCE(uc.user_count, 0) AS UNSIGNED) AS user_count,
+                s.DEFAULT_COLLATION_NAME AS `collation`,
+                s.DEFAULT_CHARACTER_SET_NAME AS `character_set`,
+                CAST(COALESCE(sz.size_bytes, 0) AS UNSIGNED) AS size_bytes
+            FROM information_schema.SCHEMATA s
+
+            LEFT JOIN (
+                SELECT
+                    x.TABLE_SCHEMA,
+                    GROUP_CONCAT(x.TABLE_NAME ORDER BY x.TABLE_NAME SEPARATOR ',') AS tables
+                FROM (
+                    SELECT
+                        TABLE_SCHEMA,
+                        TABLE_NAME,
+                        ROW_NUMBER() OVER (PARTITION BY TABLE_SCHEMA ORDER BY TABLE_NAME) AS row_num
+                    FROM information_schema.TABLES
+                    WHERE TABLE_SCHEMA REGEXP ?
+                ) x
+                {row_limit_clause}
+                GROUP BY x.TABLE_SCHEMA
+            ) t
+                ON t.TABLE_SCHEMA = s.SCHEMA_NAME
+
+            LEFT JOIN (
+                SELECT
+                    x.DB,
+                    GROUP_CONCAT(x.User ORDER BY x.User SEPARATOR ',') AS users
+                FROM (
+                    SELECT
+                        DB,
+                        User,
+                        ROW_NUMBER() OVER (PARTITION BY DB ORDER BY User) AS row_num
+                    FROM (
+                        SELECT DISTINCT DB, User
+                        FROM mysql.db
+                        WHERE DB REGEXP ?
+                    ) d
+                ) x
+                {row_limit_clause}
+                GROUP BY x.DB
+            ) u
+                ON u.DB = s.SCHEMA_NAME
+
+            LEFT JOIN (
+                SELECT
+                    TABLE_SCHEMA,
+                    SUM(DATA_LENGTH + INDEX_LENGTH) AS size_bytes,
+                    COUNT(*) AS table_count
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA REGEXP ?
+                GROUP BY TABLE_SCHEMA
+            ) sz
+                ON sz.TABLE_SCHEMA = s.SCHEMA_NAME
+
+            LEFT JOIN (
+                SELECT
+                    DB,
+                    COUNT(DISTINCT User) AS user_count
+                FROM mysql.db
+                WHERE DB REGEXP ?
+                GROUP BY DB
+            ) uc
+                ON uc.DB = s.SCHEMA_NAME
+
+            WHERE s.SCHEMA_NAME REGEXP ?
+            AND s.SCHEMA_NAME NOT IN (
+                'information_schema',
+                'performance_schema',
+                'mysql',
+                'sys'
+            )
+
+            ORDER BY s.SCHEMA_NAME
+        "
+    ))
+}
+
 pub async fn list_all_databases_for_user(
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
+    include_all_tables_and_users: bool,
 ) -> ListAllDatabasesResponse {
-    let result = sqlx::query_as::<_, DatabaseRow>(
-        r"
-          SELECT
-              CAST(s.SCHEMA_NAME AS CHAR(64)) AS `database`,
-              t.tables,
-              u.users,
-              s.DEFAULT_COLLATION_NAME AS collation,
-              s.DEFAULT_CHARACTER_SET_NAME AS character_set,
-              CAST(COALESCE(t.size_bytes, 0) AS UNSIGNED) AS size_bytes
-          FROM information_schema.SCHEMATA s
+    let query = list_all_databases_for_user_query(include_all_tables_and_users);
+    let user_group_regex = create_user_group_matching_regex(unix_user, group_denylist);
 
-          LEFT JOIN (
-              SELECT
-                  TABLE_SCHEMA,
-                  GROUP_CONCAT(
-                      DISTINCT CAST(TABLE_NAME AS CHAR(64))
-                      ORDER BY TABLE_NAME
-                      SEPARATOR ','
-                  ) AS tables,
-                  SUM(DATA_LENGTH + INDEX_LENGTH) AS size_bytes
-              FROM information_schema.TABLES
-              WHERE TABLE_SCHEMA REGEXP ?
-              GROUP BY TABLE_SCHEMA
-          ) t
-              ON t.TABLE_SCHEMA = s.SCHEMA_NAME
-
-          LEFT JOIN (
-              SELECT
-                  DB,
-                  GROUP_CONCAT(
-                      DISTINCT CAST(User AS CHAR(64))
-                      ORDER BY User
-                      SEPARATOR ','
-                  ) AS users
-              FROM mysql.db
-              WHERE DB REGEXP ?
-              GROUP BY DB
-          ) u
-              ON u.DB = s.SCHEMA_NAME
-
-          WHERE s.SCHEMA_NAME REGEXP ?
-          AND s.SCHEMA_NAME NOT IN (
-              'information_schema',
-              'performance_schema',
-              'mysql',
-              'sys'
-          )
-
-          ORDER BY s.SCHEMA_NAME
-        ",
-    )
-    .bind(create_user_group_matching_regex(unix_user, group_denylist))
-    .bind(create_user_group_matching_regex(unix_user, group_denylist))
-    .bind(create_user_group_matching_regex(unix_user, group_denylist))
-    .fetch_all(connection)
-    .await
-    .map_err(|err| ListAllDatabasesError::MySqlError(err.to_string()));
+    let result = sqlx::query_as::<_, DatabaseRow>(query)
+        .bind(&user_group_regex)
+        .bind(&user_group_regex)
+        .bind(&user_group_regex)
+        .bind(&user_group_regex)
+        .bind(&user_group_regex)
+        .fetch_all(connection)
+        .await
+        .map_err(|err| ListAllDatabasesError::MySqlError(err.to_string()));
 
     // TODO: should we assert that the users are also owned by the unix_user from the request?
 

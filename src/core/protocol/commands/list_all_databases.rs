@@ -38,7 +38,9 @@ mod tests {
             DatabaseRow {
                 database: "db1".into(),
                 tables: vec!["table1".into(), "table2".into()],
+                table_count: 2,
                 users: vec!["user1".into(), "user2".into()],
+                user_count: 2,
                 collation: Some("utf8mb4_general_ci".into()),
                 character_set: Some("utf8mb4".into()),
                 size_bytes: 1024,
@@ -46,7 +48,9 @@ mod tests {
             DatabaseRow {
                 database: "db2".into(),
                 tables: vec!["table3".into(), "table4".into()],
+                table_count: 2,
                 users: vec!["user3".into(), "user4".into()],
+                user_count: 2,
                 collation: Some("utf8mb4_general_ci".into()),
                 character_set: Some("utf8mb4".into()),
                 size_bytes: 2048,

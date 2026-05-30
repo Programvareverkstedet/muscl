@@ -23,7 +23,7 @@ use crate::{
             parse_privilege_data_from_editor_content, reduce_privilege_diffs,
         },
         protocol::{
-            ClientToServerMessageStream, ListDatabasesError, ListUsersError,
+            ClientToServerMessageStream, ListDatabasesError, ListDatabasesRequest, ListUsersError,
             ModifyDatabasePrivilegesError, Request, Response,
             print_modify_database_privileges_output_status, request_validation::ValidationError,
         },
@@ -132,7 +132,7 @@ async fn databases_exist(
         .map(|diff| diff.get_database_name().clone())
         .collect();
 
-    let message = Request::ListDatabases(Some(database_list));
+    let message = Request::ListDatabases(ListDatabasesRequest::new(Some(database_list), false));
     server_connection.send(message).await?;
 
     let result = match server_connection.next().await {

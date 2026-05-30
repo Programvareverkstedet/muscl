@@ -142,7 +142,8 @@ impl Request {
             Request::ListDatabases(req) => format!(
                 "{}{}",
                 self.command_name(),
-                req.as_ref()
+                req.names
+                    .as_ref()
                     .map_or("".to_string(), |r| format!("({})", r.len()))
             ),
             Request::ListPrivileges(req) => format!(
@@ -206,9 +207,12 @@ impl Request {
             Request::CompleteUserName(_) => Default::default(),
             Request::CreateDatabases(databases) => databases.iter().cloned().collect(),
             Request::DropDatabases(databases) => databases.iter().cloned().collect(),
-            Request::ListDatabases(databases) => {
-                databases.clone().unwrap_or_default().into_iter().collect()
-            }
+            Request::ListDatabases(request) => request
+                .names
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
             Request::ListPrivileges(databases) => {
                 databases.clone().unwrap_or_default().into_iter().collect()
             }
