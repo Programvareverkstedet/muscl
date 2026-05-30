@@ -14,7 +14,21 @@ use crate::{
     server::sql::database_operations::DatabaseRow,
 };
 
-pub type ListDatabasesRequest = Option<Vec<MySQLDatabase>>;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListDatabasesRequest {
+    pub names: Option<Vec<MySQLDatabase>>,
+    #[serde(default)]
+    pub include_all_tables_and_users: bool,
+}
+
+impl ListDatabasesRequest {
+    pub fn new(names: Option<Vec<MySQLDatabase>>, include_all_tables_and_users: bool) -> Self {
+        Self {
+            names,
+            include_all_tables_and_users,
+        }
+    }
+}
 
 pub type ListDatabasesResponse = BTreeMap<MySQLDatabase, Result<DatabaseRow, ListDatabasesError>>;
 
@@ -144,12 +158,26 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize_request() {
-        let request = Some(vec!["db1".into(), "db2".into()]);
+        let request = ListDatabasesRequest::new(Some(vec!["db1".into(), "db2".into()]), true);
         let json = serde_json::to_string_pretty(&request).unwrap();
         println!("Serialized request:\n{}", json);
 
         let deserialized: ListDatabasesRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(request, deserialized);
+    }
+
+    #[test]
+    fn test_deserialize_request_without_include_all_tables_and_users_defaults_to_false() {
+        let json = serde_json::json!({
+            "names": ["db1", "db2"]
+        })
+        .to_string();
+
+        let deserialized: ListDatabasesRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            deserialized,
+            ListDatabasesRequest::new(Some(vec!["db1".into(), "db2".into()]), false)
+        );
     }
 
     #[test]

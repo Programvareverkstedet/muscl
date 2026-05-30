@@ -337,14 +337,15 @@ async fn handle_request(
             .await;
             Response::DropDatabases(result)
         }
-        Request::ListDatabases(ref database_names) => {
-            if let Some(database_names) = database_names {
+        Request::ListDatabases(ref request) => {
+            if let Some(database_names) = &request.names {
                 let result = list_databases(
                     database_names,
                     unix_user,
                     db_connection,
                     db_is_mariadb,
                     group_denylist,
+                    request.include_all_tables_and_users,
                 )
                 .await;
                 Response::ListDatabases(result)
@@ -354,6 +355,7 @@ async fn handle_request(
                     db_connection,
                     db_is_mariadb,
                     group_denylist,
+                    request.include_all_tables_and_users,
                 )
                 .await;
                 Response::ListAllDatabases(result)

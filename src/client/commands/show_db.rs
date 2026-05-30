@@ -8,8 +8,8 @@ use crate::{
     core::{
         completion::mysql_database_completer,
         protocol::{
-            ClientToServerMessageStream, ListDatabasesError, Request, Response,
-            print_list_databases_output_status, print_list_databases_output_status_json,
+            ClientToServerMessageStream, ListDatabasesError, ListDatabasesRequest, Request,
+            Response, print_list_databases_output_status, print_list_databases_output_status_json,
             request_validation::ValidationError,
         },
         types::MySQLDatabase,
@@ -27,6 +27,10 @@ pub struct ShowDbArgs {
     #[arg(short, long)]
     json: bool,
 
+    /// Show all tables and users for each database
+    #[arg(short = 'a', long)]
+    all: bool,
+
     /// Show sizes in bytes instead of human-readable format
     #[arg(short, long)]
     bytes: bool,
@@ -36,11 +40,14 @@ pub async fn show_databases(
     args: ShowDbArgs,
     mut server_connection: ClientToServerMessageStream,
 ) -> anyhow::Result<()> {
-    let message = if args.name.is_empty() {
-        Request::ListDatabases(None)
-    } else {
-        Request::ListDatabases(Some(args.name.clone()))
-    };
+    let message = Request::ListDatabases(ListDatabasesRequest::new(
+        if args.name.is_empty() {
+            None
+        } else {
+            Some(args.name.clone())
+        },
+        args.all || args.json,
+    ));
 
     server_connection.send(message).await?;
 

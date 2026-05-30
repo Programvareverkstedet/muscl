@@ -22,8 +22,8 @@ use crate::{
         completion::{mysql_database_completer, prefix_completer},
         database_privileges::DatabasePrivilegeRow,
         protocol::{
-            ClientToServerMessageStream, ListPrivilegesError, Request, Response,
-            create_client_to_server_message_stream,
+            ClientToServerMessageStream, ListDatabasesRequest, ListPrivilegesError, Request,
+            Response, create_client_to_server_message_stream,
         },
         types::MySQLDatabase,
     },
@@ -285,7 +285,7 @@ async fn show_databases(
         args.name.iter().map(trim_db_name_to_32_chars).collect();
 
     let message = if database_names.is_empty() {
-        let message = Request::ListDatabases(None);
+        let message = Request::ListDatabases(ListDatabasesRequest::new(None, false));
         server_connection.send(message).await?;
         let response = server_connection.next().await;
         let databases = match response {
