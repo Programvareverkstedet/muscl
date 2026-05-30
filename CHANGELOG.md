@@ -76,7 +76,7 @@ This is the initial release of `muscl`.
   interactive tool, there shouldn't have been any scripts relying on the old formatting.
 - The configuration file is shared for all variants of the program, and `muscl` will use
   its new logic to look for and parse this file. See the example config and
-  [installation instructions][installation-instructions] for more information about how to
+  [installation instructions](./docs/installation.md) for more information about how to
   configure the software.
 - The order in which input is validated might be differ from the original
   (e.g. database ownership checks, invalid character checks, existence checks, ...).
