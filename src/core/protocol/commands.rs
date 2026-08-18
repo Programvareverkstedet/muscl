@@ -41,7 +41,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use tokio::net::UnixStream;
-use tokio_serde::{Framed as SerdeFramed, formats::Bincode};
+use tokio_serde::{Framed as SerdeFramed, formats::Json};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use crate::core::types::{MySQLDatabase, MySQLUser};
@@ -50,14 +50,14 @@ pub type ServerToClientMessageStream = SerdeFramed<
     Framed<UnixStream, LengthDelimitedCodec>,
     Request,
     Response,
-    Bincode<Request, Response>,
+    Json<Request, Response>,
 >;
 
 pub type ClientToServerMessageStream = SerdeFramed<
     Framed<UnixStream, LengthDelimitedCodec>,
     Response,
     Request,
-    Bincode<Response, Request>,
+    Json<Response, Request>,
 >;
 
 const MAX_REQUEST_FRAME_LENGTH: usize = 100 * 1024; // 100 KB
@@ -70,7 +70,7 @@ pub fn create_client_to_server_message_stream(socket: UnixStream) -> ClientToSer
         codec
     };
     let length_delimited = Framed::new(socket, codec);
-    tokio_serde::Framed::new(length_delimited, Bincode::default())
+    tokio_serde::Framed::new(length_delimited, Json::default())
 }
 
 pub fn create_server_to_client_message_stream(socket: UnixStream) -> ServerToClientMessageStream {
@@ -80,7 +80,7 @@ pub fn create_server_to_client_message_stream(socket: UnixStream) -> ServerToCli
         codec
     };
     let length_delimited = Framed::new(socket, codec);
-    tokio_serde::Framed::new(length_delimited, Bincode::default())
+    tokio_serde::Framed::new(length_delimited, Json::default())
 }
 
 #[non_exhaustive]
