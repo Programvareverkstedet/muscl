@@ -20,7 +20,8 @@ use crate::{
         bootstrap::bootstrap_server_connection_and_drop_privileges,
         completion::{mysql_user_completer, prefix_completer},
         protocol::{
-            ClientToServerMessageStream, Request, Response, create_client_to_server_message_stream,
+            ClientToServerMessageStream, PasswordSource, Request, Response,
+            create_client_to_server_message_stream,
         },
         types::MySQLUser,
     },
@@ -253,11 +254,11 @@ async fn passwd_users(
 
     for user in users {
         let password = read_password_from_stdin_with_double_check(&user.user)?;
-        let message = Request::PasswdUser((user.user.clone(), password));
+        let message = Request::PasswdUser((user.user.clone(), PasswordSource::Explicit(password)));
         server_connection.send(message).await?;
         match server_connection.next().await {
             Some(Ok(Response::SetUserPassword(result))) => match result {
-                Ok(()) => println!("Password updated for user '{}'.", &user.user),
+                Ok(_) => println!("Password updated for user '{}'.", &user.user),
                 Err(_) => eprintln!(
                     "{}: Failed to update password for user '{}'.",
                     argv0, user.user,

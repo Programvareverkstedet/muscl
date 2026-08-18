@@ -1,5 +1,6 @@
 use indoc::formatdoc;
 use itertools::Itertools;
+use rand::distr::{Alphanumeric, SampleString};
 use sqlx::AssertSqlSafe;
 use std::collections::BTreeMap;
 
@@ -18,8 +19,8 @@ use crate::{
         protocol::{
             CreateUserError, CreateUsersResponse, DropUserError, DropUsersResponse,
             ListAllUsersError, ListAllUsersResponse, ListUsersError, ListUsersResponse,
-            LockUserError, LockUsersResponse, SetPasswordError, SetUserPasswordResponse,
-            UnlockUserError, UnlockUsersResponse,
+            LockUserError, LockUsersResponse, PasswordSource, SetPasswordError,
+            SetUserPasswordResponse, UnlockUserError, UnlockUsersResponse,
         },
         types::MySQLUser,
     },
@@ -28,6 +29,8 @@ use crate::{
         sql::quote_literal,
     },
 };
+
+const GENERATED_PASSWORD_LENGTH: usize = 24;
 
 // NOTE: this function is unsafe because it does no input validation.
 pub(super) async fn unsafe_user_exists(
@@ -193,7 +196,7 @@ pub async fn drop_database_users(
 
 pub async fn set_password_for_database_user(
     db_user: &MySQLUser,
-    password: &str,
+    password: &PasswordSource,
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
     _db_is_mariadb: bool,
@@ -208,6 +211,20 @@ pub async fn set_password_for_database_user(
         _ => {}
     }
 
+    let generated_password = match password {
+        PasswordSource::Explicit(_) => None,
+        PasswordSource::Generate => {
+            Some(Alphanumeric.sample_string(&mut rand::rng(), GENERATED_PASSWORD_LENGTH))
+        }
+    };
+    let password = match (&generated_password, password) {
+        (Some(generated), _) => generated.as_str(),
+        (None, PasswordSource::Explicit(password)) => password.as_str(),
+        (None, PasswordSource::Generate) => {
+            unreachable!("generated_password is always Some for PasswordSource::Generate")
+        }
+    };
+
     let statement = AssertSqlSafe(format!(
         "ALTER USER {}@'%' IDENTIFIED BY {}",
         quote_literal(db_user),
@@ -216,7 +233,7 @@ pub async fn set_password_for_database_user(
     let result = sqlx::query(statement)
         .execute(&mut *connection)
         .await
-        .map(|_| ())
+        .map(|_| generated_password)
         .map_err(|err| SetPasswordError::MySqlError(err.to_string()));
 
     if result.is_err() {

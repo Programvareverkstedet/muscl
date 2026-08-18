@@ -11,7 +11,7 @@ use crate::{
     core::{
         common::UnixUser,
         protocol::{
-            Request, Response, ServerToClientMessageStream, SetPasswordError,
+            PasswordSource, Request, Response, ServerToClientMessageStream, SetPasswordError,
             create_server_to_client_message_stream, request_validation::GroupDenylist,
         },
     },
@@ -231,11 +231,15 @@ async fn handle_request(
 ) -> anyhow::Result<bool> {
     match &request {
         Request::Exit => tracing::debug!("Request: exit"),
-        Request::PasswdUser((db_user, _)) => tracing::debug!(
+        Request::PasswdUser((db_user, password)) => tracing::debug!(
             "Request:\n{}",
             serde_json::to_string_pretty(&Request::PasswdUser((
                 db_user.to_owned(),
-                "<REDACTED>".to_string()
+                match password {
+                    PasswordSource::Explicit(_) =>
+                        PasswordSource::Explicit("<REDACTED>".to_string()),
+                    PasswordSource::Generate => PasswordSource::Generate,
+                }
             )))?
         ),
         request => tracing::debug!("Request:\n{}", serde_json::to_string_pretty(request)?),
@@ -473,6 +477,9 @@ async fn handle_request(
     let response_to_display = match &response {
         Response::SetUserPassword(Err(SetPasswordError::MySqlError(_))) => {
             &Response::SetUserPassword(Err(SetPasswordError::MySqlError("<REDACTED>".to_string())))
+        }
+        Response::SetUserPassword(Ok(Some(_))) => {
+            &Response::SetUserPassword(Ok(Some("<REDACTED>".to_string())))
         }
         response => response,
     };

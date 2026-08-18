@@ -12,8 +12,9 @@ use crate::{
     core::{
         completion::mysql_user_completer,
         protocol::{
-            ClientToServerMessageStream, ListUsersError, Request, Response, SetPasswordError,
-            print_set_password_output_status, request_validation::ValidationError,
+            ClientToServerMessageStream, ListUsersError, PasswordSource, Request, Response,
+            SetPasswordError, print_set_password_output_status,
+            request_validation::ValidationError,
         },
         types::MySQLUser,
     },
@@ -27,12 +28,29 @@ pub struct PasswdUserArgs {
     username: MySQLUser,
 
     /// Read the new password from a file instead of prompting for it
-    #[clap(short, long, value_name = "PATH", conflicts_with = "stdin")]
+    #[clap(
+        short,
+        long,
+        value_name = "PATH",
+        conflicts_with_all = ["stdin", "generate"]
+    )]
     password_file: Option<PathBuf>,
 
     /// Read the new password from stdin instead of prompting for it
-    #[clap(short = 'i', long, conflicts_with = "password_file")]
+    #[clap(
+        short = 'i',
+        long,
+        conflicts_with_all = ["password_file", "generate"]
+    )]
     stdin: bool,
+
+    /// Generate a new random password instead of prompting for one
+    #[clap(
+        short,
+        long,
+        conflicts_with_all = ["password_file", "stdin"]
+    )]
+    generate: bool,
 
     /// Print the information as JSON
     #[arg(short, long)]
@@ -76,24 +94,28 @@ pub async fn passwd_user(
         }
     }
 
-    let password = if let Some(password_file) = args.password_file {
-        std::fs::read_to_string(password_file)
-            .context("Failed to read password file")?
-            .trim()
-            .to_string()
+    let password = if args.generate {
+        PasswordSource::Generate
+    } else if let Some(password_file) = args.password_file {
+        PasswordSource::Explicit(
+            std::fs::read_to_string(password_file)
+                .context("Failed to read password file")?
+                .trim()
+                .to_string(),
+        )
     } else if args.stdin {
         let mut buffer = String::new();
         std::io::stdin()
             .read_line(&mut buffer)
             .context("Failed to read password from stdin")?;
-        buffer.trim().to_string()
+        PasswordSource::Explicit(buffer.trim().to_string())
     } else {
         if !std::io::stdin().is_terminal() {
             anyhow::bail!(
-                "Cannot prompt for password in non-interactive mode. Use --stdin or --password-file to provide the password."
+                "Cannot prompt for password in non-interactive mode. Use --stdin, --password-file, or --generate to provide the password."
             );
         }
-        read_password_from_stdin_with_double_check(&args.username)?
+        PasswordSource::Explicit(read_password_from_stdin_with_double_check(&args.username)?)
     };
 
     let message = Request::PasswdUser((args.username.clone(), password));

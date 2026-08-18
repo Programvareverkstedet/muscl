@@ -14,7 +14,7 @@ use crate::{
     core::{
         completion::prefix_completer,
         protocol::{
-            ClientToServerMessageStream, CreateUserError, Request, Response,
+            ClientToServerMessageStream, CreateUserError, PasswordSource, Request, Response,
             print_create_users_output_status, print_create_users_output_status_json,
             print_set_password_output_status, request_validation::ValidationError,
         },
@@ -99,7 +99,8 @@ pub async fn create_users(
                     .interact()?
             {
                 let password = read_password_from_stdin_with_double_check(username)?;
-                let message = Request::PasswdUser((username.to_owned(), password));
+                let message =
+                    Request::PasswdUser((username.to_owned(), PasswordSource::Explicit(password)));
 
                 if let Err(err) = server_connection.send(message).await {
                     server_connection.close().await.ok();
