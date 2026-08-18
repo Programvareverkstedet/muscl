@@ -138,6 +138,16 @@ in
       ];
     };
 
+    assertions = [
+      {
+        assertion = !cfg.createLocalDatabaseUser || cfg.settings.mysql.passwordFile == null;
+        message = ''
+          services.muscl.createLocalDatabaseUser creates a use authenticated via unix_socket,
+          Set services.muscl.settings.mysql.passwordFile only if you are managing the database user yourself.
+        '';
+      }
+    ];
+
     services.mysql.ensureUsers = lib.mkIf cfg.createLocalDatabaseUser [
       {
         name = cfg.settings.mysql.username;

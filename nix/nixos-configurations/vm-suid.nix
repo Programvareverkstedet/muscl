@@ -77,13 +77,9 @@ nixpkgs.lib.nixosSystem {
       environment.etc."muscl/config.toml".source = (pkgs.formats.toml { }).generate "muscl-config.toml" {
         mysql = {
           username = "muscl";
-          password = "snakeoil";
           socket_path = "/run/mysqld/mysqld.sock";
         };
       };
-
-      # TODO: extra setup commands:
-      #       set password for mysql user
 
       programs.vim = {
         enable = true;
