@@ -258,7 +258,7 @@ async fn passwd_users(
         server_connection.send(message).await?;
         match server_connection.next().await {
             Some(Ok(Response::SetUserPassword(result))) => match result {
-                Ok(_) => println!("Password updated for user '{}'.", &user.user),
+                Ok(_) => println!("Password updated for user '{}'.", user.user),
                 Err(_) => eprintln!(
                     "{}: Failed to update password for user '{}'.",
                     argv0, user.user,
