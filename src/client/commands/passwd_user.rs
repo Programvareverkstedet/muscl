@@ -3,7 +3,7 @@ use std::{io::IsTerminal, path::PathBuf};
 use anyhow::Context;
 use clap::Parser;
 use clap_complete::ArgValueCompleter;
-use dialoguer::Password;
+use dialoguer::{Confirm, Password};
 use futures_util::SinkExt;
 use tokio_stream::StreamExt;
 
@@ -28,29 +28,27 @@ pub struct PasswdUserArgs {
     username: MySQLUser,
 
     /// Read the new password from a file instead of prompting for it
-    #[clap(
-        short,
-        long,
-        value_name = "PATH",
-        conflicts_with_all = ["stdin", "generate"]
-    )]
+    #[clap(short, long, value_name = "PATH", group = "password_source")]
     password_file: Option<PathBuf>,
 
     /// Read the new password from stdin instead of prompting for it
-    #[clap(
-        short = 'i',
-        long,
-        conflicts_with_all = ["password_file", "generate"]
-    )]
+    #[clap(short = 'i', long, group = "password_source")]
     stdin: bool,
 
     /// Generate a new random password instead of prompting for one
-    #[clap(
-        short,
-        long,
-        conflicts_with_all = ["password_file", "stdin"]
-    )]
+    #[clap(short, long, group = "password_source")]
     generate: bool,
+
+    /// Clear the password for the user, instead of setting a new one
+    ///
+    /// Note that this may make the account connectable without a password from
+    /// anywheree, depending on the firewall and MySQL user configuration.
+    #[clap(short, long, group = "password_source")]
+    clear: bool,
+
+    /// Automatically confirm clearing the password, without prompting
+    #[clap(short, long, requires = "clear")]
+    yes: bool,
 
     /// Print the information as JSON
     #[arg(short, long)]
@@ -94,8 +92,31 @@ pub async fn passwd_user(
         }
     }
 
+    if args.clear && !args.yes {
+        if !std::io::stdin().is_terminal() {
+            anyhow::bail!(
+                "Cannot prompt for confirmation in non-interactive mode. Use --yes to automatically confirm."
+            );
+        }
+
+        let confirmation = Confirm::new()
+            .with_prompt(format!(
+                "Are you sure you want to clear the password for user '{}'?",
+                args.username
+            ))
+            .interact()?;
+
+        if !confirmation {
+            println!("Aborting password clear operation.");
+            server_connection.send(Request::Exit).await?;
+            return Ok(());
+        }
+    }
+
     let password = if args.generate {
         PasswordSource::Generate
+    } else if args.clear {
+        PasswordSource::Clear
     } else if let Some(password_file) = args.password_file {
         PasswordSource::Explicit(
             std::fs::read_to_string(password_file)
@@ -112,7 +133,7 @@ pub async fn passwd_user(
     } else {
         if !std::io::stdin().is_terminal() {
             anyhow::bail!(
-                "Cannot prompt for password in non-interactive mode. Use --stdin, --password-file, or --generate to provide the password."
+                "Cannot prompt for password in non-interactive mode. Use --stdin, --password-file, --generate, or --clear to provide the password."
             );
         }
         PasswordSource::Explicit(read_password_from_stdin_with_double_check(&args.username)?)
@@ -130,7 +151,20 @@ pub async fn passwd_user(
         response => return erroneous_server_response(response),
     };
 
-    print_set_password_output_status(&result, &args.username);
+    if args.clear {
+        match &result {
+            Ok(_) => println!(
+                "Password for user '{}' cleared successfully.",
+                args.username
+            ),
+            Err(err) => {
+                eprintln!("{}", err.to_error_message(&args.username));
+                eprintln!("Skipping...");
+            }
+        }
+    } else {
+        print_set_password_output_status(&result, &args.username);
+    }
 
     if matches!(
         result,

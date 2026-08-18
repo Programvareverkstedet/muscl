@@ -239,6 +239,7 @@ async fn handle_request(
                     PasswordSource::Explicit(_) =>
                         PasswordSource::Explicit("<REDACTED>".to_string()),
                     PasswordSource::Generate => PasswordSource::Generate,
+                    PasswordSource::Clear => PasswordSource::Clear,
                 }
             )))?
         ),

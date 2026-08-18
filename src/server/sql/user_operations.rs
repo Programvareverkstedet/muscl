@@ -212,7 +212,7 @@ pub async fn set_password_for_database_user(
     }
 
     let generated_password = match password {
-        PasswordSource::Explicit(_) => None,
+        PasswordSource::Explicit(_) | PasswordSource::Clear => None,
         PasswordSource::Generate => {
             Some(Alphanumeric.sample_string(&mut rand::rng(), GENERATED_PASSWORD_LENGTH))
         }
@@ -220,6 +220,7 @@ pub async fn set_password_for_database_user(
     let password = match (&generated_password, password) {
         (Some(generated), _) => generated.as_str(),
         (None, PasswordSource::Explicit(password)) => password.as_str(),
+        (None, PasswordSource::Clear) => "",
         (None, PasswordSource::Generate) => {
             unreachable!("generated_password is always Some for PasswordSource::Generate")
         }
