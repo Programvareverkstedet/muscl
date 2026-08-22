@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
 
+use super::format_possibly_truncated_list;
 use crate::{
     core::{
         protocol::request_validation::ValidationError,
@@ -42,24 +43,6 @@ pub enum ListDatabasesError {
 
     #[error("MySQL error: {0}")]
     MySqlError(String),
-}
-
-fn format_possibly_truncated_list<'a>(
-    items: impl Iterator<Item = &'a str>,
-    total_count: u64,
-) -> String {
-    let items: Vec<&str> = items.collect();
-    let mut joined = items.join("\n");
-
-    let remaining = total_count.saturating_sub(items.len() as u64);
-    if remaining > 0 {
-        if !joined.is_empty() {
-            joined.push('\n');
-        }
-        joined.push_str(&format!("... ({remaining} more)"));
-    }
-
-    joined
 }
 
 pub fn print_list_databases_output_status(
@@ -181,26 +164,6 @@ impl ListDatabasesError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_format_possibly_truncated_list() {
-        assert_eq!(format_possibly_truncated_list([].into_iter(), 0), "");
-
-        assert_eq!(
-            format_possibly_truncated_list(["a", "b"].into_iter(), 2),
-            "a\nb"
-        );
-
-        assert_eq!(
-            format_possibly_truncated_list(["a", "b"].into_iter(), 5),
-            "a\nb\n... (3 more)"
-        );
-
-        assert_eq!(
-            format_possibly_truncated_list([].into_iter(), 5),
-            "... (5 more)"
-        );
-    }
 
     #[test]
     fn test_serialize_deserialize_request() {

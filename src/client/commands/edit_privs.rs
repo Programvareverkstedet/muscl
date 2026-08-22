@@ -24,7 +24,7 @@ use crate::{
         },
         protocol::{
             ClientToServerMessageStream, ListDatabasesError, ListDatabasesRequest, ListUsersError,
-            ModifyDatabasePrivilegesError, Request, Response,
+            ListUsersRequest, ModifyDatabasePrivilegesError, Request, Response,
             print_modify_database_privileges_output_status, request_validation::ValidationError,
         },
         types::{MySQLDatabase, MySQLUser},
@@ -103,7 +103,7 @@ async fn users_exist(
         .map(|diff| diff.get_user_name().clone())
         .collect();
 
-    let message = Request::ListUsers(Some(user_list));
+    let message = Request::ListUsers(ListUsersRequest::new(Some(user_list), false));
     server_connection.send(message).await?;
 
     let result = match server_connection.next().await {

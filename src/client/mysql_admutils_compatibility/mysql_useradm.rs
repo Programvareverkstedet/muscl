@@ -20,7 +20,7 @@ use crate::{
         bootstrap::bootstrap_server_connection_and_drop_privileges,
         completion::{mysql_user_completer, prefix_completer},
         protocol::{
-            ClientToServerMessageStream, PasswordSource, Request, Response,
+            ClientToServerMessageStream, ListUsersRequest, PasswordSource, Request, Response,
             create_client_to_server_message_stream,
         },
         types::MySQLUser,
@@ -229,7 +229,7 @@ async fn passwd_users(
 ) -> anyhow::Result<()> {
     let db_users = args.name.iter().map(trim_user_name_to_32_chars).collect();
 
-    let message = Request::ListUsers(Some(db_users));
+    let message = Request::ListUsers(ListUsersRequest::new(Some(db_users), false));
     server_connection.send(message).await?;
 
     let response = match server_connection.next().await {
@@ -280,9 +280,9 @@ async fn show_users(
     let db_users: Vec<_> = args.name.iter().map(trim_user_name_to_32_chars).collect();
 
     let message = if db_users.is_empty() {
-        Request::ListUsers(None)
+        Request::ListUsers(ListUsersRequest::new(None, false))
     } else {
-        Request::ListUsers(Some(db_users))
+        Request::ListUsers(ListUsersRequest::new(Some(db_users), false))
     };
     server_connection.send(message).await?;
 

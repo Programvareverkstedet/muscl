@@ -41,6 +41,7 @@ mod tests {
                 has_password: true,
                 is_locked: false,
                 databases: vec!["db1".into(), "db2".into()],
+                database_count: 2,
             },
             DatabaseUser {
                 user: "user2".into(),
@@ -48,6 +49,7 @@ mod tests {
                 has_password: false,
                 is_locked: true,
                 databases: vec!["db3".into()],
+                database_count: 1,
             },
         ]);
 

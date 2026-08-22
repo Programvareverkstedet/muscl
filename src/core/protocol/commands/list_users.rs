@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
 
+use super::format_possibly_truncated_list;
 use crate::{
     core::{
         protocol::request_validation::ValidationError,
@@ -14,7 +15,21 @@ use crate::{
     server::sql::user_operations::DatabaseUser,
 };
 
-pub type ListUsersRequest = Option<Vec<MySQLUser>>;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListUsersRequest {
+    pub names: Option<Vec<MySQLUser>>,
+    #[serde(default)]
+    pub include_all_databases: bool,
+}
+
+impl ListUsersRequest {
+    pub fn new(names: Option<Vec<MySQLUser>>, include_all_databases: bool) -> Self {
+        Self {
+            names,
+            include_all_databases,
+        }
+    }
+}
 
 pub type ListUsersResponse = BTreeMap<MySQLUser, Result<DatabaseUser, ListUsersError>>;
 
@@ -57,7 +72,10 @@ pub fn print_list_users_output_status(output: &ListUsersResponse) {
                 user.user,
                 user.has_password,
                 user.is_locked,
-                user.databases.join("\n")
+                format_possibly_truncated_list(
+                    user.databases.iter().map(String::as_str),
+                    user.database_count
+                )
             ]);
         }
         table.printstd();
@@ -77,6 +95,7 @@ pub fn print_list_users_output_status_json(output: &ListUsersResponse) {
                     "has_password": row.has_password,
                     "is_locked": row.is_locked,
                     "databases": row.databases,
+                    "database_count": row.database_count,
                   }
                 }),
             ),
@@ -129,7 +148,8 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize_request() {
-        let request: ListUsersRequest = Some(vec!["test_user1".into(), "test_user2".into()]);
+        let request =
+            ListUsersRequest::new(Some(vec!["test_user1".into(), "test_user2".into()]), true);
 
         let json = serde_json::to_string_pretty(&request).unwrap();
         println!("Serialized request:\n{}", json);
@@ -149,6 +169,7 @@ mod tests {
                     has_password: true,
                     is_locked: false,
                     databases: vec!["db1".into(), "db2".into()],
+                    database_count: 2,
                 }),
             ),
             ("test_user2".into(), Err(ListUsersError::UserDoesNotExist)),

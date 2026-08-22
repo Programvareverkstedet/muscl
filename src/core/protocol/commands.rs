@@ -159,7 +159,8 @@ impl Request {
             Request::ListUsers(req) => format!(
                 "{}{}",
                 self.command_name(),
-                req.as_ref()
+                req.names
+                    .as_ref()
                     .map_or("".to_string(), |r| format!("({})", r.len()))
             ),
             Request::LockUsers(req) => format!("{}({})", self.command_name(), req.len()),
@@ -191,7 +192,12 @@ impl Request {
                 result.insert(user_passwd_req.0.clone());
                 result
             }
-            Request::ListUsers(users) => users.clone().unwrap_or_default().into_iter().collect(),
+            Request::ListUsers(request) => request
+                .names
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
             Request::LockUsers(users) => users.iter().cloned().collect(),
             Request::UnlockUsers(users) => users.iter().cloned().collect(),
             Request::Exit => Default::default(),
@@ -356,5 +362,49 @@ impl Response {
             Response::Ready => ResponseOkStatus::Success,
             Response::Error(_) => ResponseOkStatus::Error,
         }
+    }
+}
+
+// Utility function to format a list of items, used in list commands.
+pub(crate) fn format_possibly_truncated_list<'a>(
+    items: impl Iterator<Item = &'a str>,
+    total_count: u64,
+) -> String {
+    let items: Vec<&str> = items.collect();
+    let mut joined = items.join("\n");
+
+    let remaining = total_count.saturating_sub(items.len() as u64);
+    if remaining > 0 {
+        if !joined.is_empty() {
+            joined.push('\n');
+        }
+        joined.push_str(&format!("... ({remaining} more)"));
+    }
+
+    joined
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_possibly_truncated_list() {
+        assert_eq!(format_possibly_truncated_list([].into_iter(), 0), "");
+
+        assert_eq!(
+            format_possibly_truncated_list(["a", "b"].into_iter(), 2),
+            "a\nb"
+        );
+
+        assert_eq!(
+            format_possibly_truncated_list(["a", "b"].into_iter(), 5),
+            "a\nb\n... (3 more)"
+        );
+
+        assert_eq!(
+            format_possibly_truncated_list([].into_iter(), 5),
+            "... (5 more)"
+        );
     }
 }

@@ -12,8 +12,8 @@ use crate::{
     core::{
         completion::mysql_user_completer,
         protocol::{
-            ClientToServerMessageStream, ListUsersError, PasswordSource, Request, Response,
-            SetPasswordError, print_set_password_output_status,
+            ClientToServerMessageStream, ListUsersError, ListUsersRequest, PasswordSource, Request,
+            Response, SetPasswordError, print_set_password_output_status,
             request_validation::ValidationError,
         },
         types::MySQLUser,
@@ -71,7 +71,10 @@ pub async fn passwd_user(
     mut server_connection: ClientToServerMessageStream,
 ) -> anyhow::Result<()> {
     // TODO: create a "user" exists check" command
-    let message = Request::ListUsers(Some(vec![args.username.clone()]));
+    let message = Request::ListUsers(ListUsersRequest::new(
+        Some(vec![args.username.clone()]),
+        false,
+    ));
     if let Err(err) = server_connection.send(message).await {
         server_connection.close().await.ok();
         anyhow::bail!(err);

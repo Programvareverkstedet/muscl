@@ -8,7 +8,7 @@ use crate::{
     core::{
         completion::mysql_user_completer,
         protocol::{
-            ClientToServerMessageStream, ListUsersError, Request, Response,
+            ClientToServerMessageStream, ListUsersError, ListUsersRequest, Request, Response,
             print_list_users_output_status, print_list_users_output_status_json,
             request_validation::ValidationError,
         },
@@ -26,17 +26,24 @@ pub struct ShowUserArgs {
     /// Print the information as JSON
     #[arg(short, long)]
     json: bool,
+
+    /// Show all databases each user has privileges on
+    #[arg(short = 'a', long)]
+    all: bool,
 }
 
 pub async fn show_users(
     args: ShowUserArgs,
     mut server_connection: ClientToServerMessageStream,
 ) -> anyhow::Result<()> {
-    let message = if args.username.is_empty() {
-        Request::ListUsers(None)
-    } else {
-        Request::ListUsers(Some(args.username.clone()))
-    };
+    let message = Request::ListUsers(ListUsersRequest::new(
+        if args.username.is_empty() {
+            None
+        } else {
+            Some(args.username.clone())
+        },
+        args.all || args.json,
+    ));
 
     if let Err(err) = server_connection.send(message).await {
         server_connection.close().await.ok();

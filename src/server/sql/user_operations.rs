@@ -31,6 +31,7 @@ use crate::{
 };
 
 const GENERATED_PASSWORD_LENGTH: usize = 24;
+const MAX_SHOW_USER_RELATED_ITEMS: usize = 5;
 
 // NOTE: this function is unsafe because it does no input validation.
 pub(super) async fn unsafe_user_exists(
@@ -426,6 +427,7 @@ pub struct DatabaseUser {
     pub has_password: bool,
     pub is_locked: bool,
     pub databases: Vec<String>,
+    pub database_count: u64,
 }
 
 impl FromRow<'_, sqlx::mysql::MySqlRow> for DatabaseUser {
@@ -436,6 +438,7 @@ impl FromRow<'_, sqlx::mysql::MySqlRow> for DatabaseUser {
             has_password: row.try_get("has_password")?,
             is_locked: row.try_get("account_locked")?,
             databases: Vec::new(),
+            database_count: 0,
         })
     }
 }
@@ -470,6 +473,7 @@ pub async fn list_database_users(
     connection: &mut MySqlConnection,
     db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
+    include_all_databases: bool,
 ) -> ListUsersResponse {
     let mut results = BTreeMap::new();
 
@@ -499,7 +503,12 @@ pub async fn list_database_users(
         }
 
         if let Ok(Some(user)) = result.as_mut()
-            && let Err(err) = set_databases_where_user_has_privileges(user, &mut *connection).await
+            && let Err(err) = set_databases_where_user_has_privileges(
+                user,
+                &mut *connection,
+                include_all_databases,
+            )
+            .await
         {
             result = Err(err);
         }
@@ -519,6 +528,7 @@ pub async fn list_all_database_users_for_unix_user(
     connection: &mut MySqlConnection,
     db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
+    include_all_databases: bool,
 ) -> ListAllUsersResponse {
     let statement = AssertSqlSafe(
         if db_is_mariadb {
@@ -539,8 +549,12 @@ pub async fn list_all_database_users_for_unix_user(
 
     if let Ok(users) = result.as_mut() {
         for user in users {
-            if let Err(mysql_error) =
-                set_databases_where_user_has_privileges(user, &mut *connection).await
+            if let Err(mysql_error) = set_databases_where_user_has_privileges(
+                user,
+                &mut *connection,
+                include_all_databases,
+            )
+            .await
             {
                 return Err(ListAllUsersError::MySqlError(mysql_error.to_string()));
             }
@@ -555,12 +569,22 @@ pub async fn list_all_database_users_for_unix_user(
 pub async fn set_databases_where_user_has_privileges(
     db_user: &mut DatabaseUser,
     connection: &mut MySqlConnection,
+    include_all_databases: bool,
 ) -> Result<(), sqlx::Error> {
+    let limit_clause = if include_all_databases {
+        String::new()
+    } else {
+        format!(" LIMIT {MAX_SHOW_USER_RELATED_ITEMS}")
+    };
+
     let statement = AssertSqlSafe(formatdoc!(
         r"
-            SELECT `Db` AS `database`
+            SELECT
+                `Db` AS `database`,
+                CAST(COUNT(*) OVER() AS UNSIGNED) AS `database_count`
             FROM `db`
             WHERE `User` = ?  AND `Host` = '%' AND ({})
+            ORDER BY `Db`{limit_clause}
         ",
         DATABASE_PRIVILEGE_FIELDS
             .iter()
@@ -580,11 +604,18 @@ pub async fn set_databases_where_user_has_privileges(
         );
     }
 
-    db_user.databases = database_list.and_then(|rows| {
-        rows.into_iter()
-            .map(|row| try_get_with_binary_fallback(&row, "database"))
-            .collect::<Result<Vec<String>, sqlx::Error>>()
-    })?;
+    let rows = database_list?;
+
+    db_user.database_count = rows
+        .first()
+        .map(|row| row.try_get::<u64, _>("database_count"))
+        .transpose()?
+        .unwrap_or(0);
+
+    db_user.databases = rows
+        .into_iter()
+        .map(|row| try_get_with_binary_fallback(&row, "database"))
+        .collect::<Result<Vec<String>, sqlx::Error>>()?;
 
     Ok(())
 }

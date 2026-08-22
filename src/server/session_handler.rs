@@ -428,14 +428,15 @@ async fn handle_request(
             .await;
             Response::SetUserPassword(result)
         }
-        Request::ListUsers(ref db_users) => {
-            if let Some(db_users) = db_users {
+        Request::ListUsers(ref request) => {
+            if let Some(db_users) = &request.names {
                 let result = list_database_users(
                     db_users,
                     unix_user,
                     db_connection,
                     db_is_mariadb,
                     group_denylist,
+                    request.include_all_databases,
                 )
                 .await;
                 Response::ListUsers(result)
@@ -445,6 +446,7 @@ async fn handle_request(
                     db_connection,
                     db_is_mariadb,
                     group_denylist,
+                    request.include_all_databases,
                 )
                 .await;
                 Response::ListAllUsers(result)
