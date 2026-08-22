@@ -51,7 +51,7 @@ Make sure to remember the username and password, as we will now need to add them
 If your MySQL server is not running on the same host as the muscl server, you will need to replace `localhost` with the appropriate hostname or IP address in the different commands above. Alternatively, you can use `'%`' to allow connections from any host, but this is not recommended.
 
 The configuration already comes preconfigured expecting the database user to be named `muscl`.
-If you named it differently, please edit `/etc/muscl/muscl.conf` accordingly.
+If you named it differently, please edit `/etc/muscl/config.toml` accordingly.
 
 muscl will use the `mysql` database to manage users and databases, and the `*.*` privileges to be able to create, drop and grant privileges on arbitrary databases (restricted by the prefix system).
 
@@ -96,7 +96,7 @@ LoadCredentialEncrypted=muscl_mysql_password:/etc/credstore.encrypted/muscl_mysq
 
 If you do not have systemd, or if you do not want to use `systemd-creds`, you can also set the password in any other file on the system.
 Be careful to ensure that the file is not readable by unprivileged users, as it would yield them too much access to the MySQL server.
-Edit `/etc/muscl/muscl.conf` and set the `mysql_password_file` option below `[database]` to point to the file containing the password.
+Edit `/etc/muscl/config.toml` and set the `mysql_password_file` option below `[database]` to point to the file containing the password.
 
 If you are using systemd, you should also create an override to unset the `ImportCredential=` line. Run `systemctl edit muscl.service` and add the following lines:
 

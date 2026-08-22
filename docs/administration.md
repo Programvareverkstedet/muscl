@@ -4,7 +4,7 @@ This page describes some additional configuration options and administration tas
 
 ## Configuring group denylists
 
-In `/etc/muscl/muscl.conf`, you will find an option below `[authorization]` named `group_denylist_file`,
+In `/etc/muscl/config.toml`, you will find an option below `[authorization]` named `group_denylist_file`,
 which points to `/etc/muscl/group_denylist.txt` by default.
 
 In this file, you can add unix group names or GIDs to disallow the groups from being used as prefixes.
