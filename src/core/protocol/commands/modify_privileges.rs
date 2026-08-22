@@ -29,7 +29,7 @@ pub enum ModifyDatabasePrivilegesError {
     UserDoesNotExist,
 
     #[error("Diff does not apply: {0}")]
-    DiffDoesNotApply(DiffDoesNotApplyError),
+    DiffDoesNotApply(Box<DiffDoesNotApplyError>),
 
     #[error("MySQL error: {0}")]
     MySqlError(String),

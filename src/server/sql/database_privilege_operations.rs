@@ -345,23 +345,23 @@ async fn validate_diff(
     match diff {
         DatabasePrivilegesDiff::New(_) => {
             if privilege_row.is_some() {
-                Err(ModifyDatabasePrivilegesError::DiffDoesNotApply(
+                Err(ModifyDatabasePrivilegesError::DiffDoesNotApply(Box::new(
                     DiffDoesNotApplyError::RowAlreadyExists(
                         diff.get_database_name().to_owned(),
                         diff.get_user_name().to_owned(),
                     ),
-                ))
+                )))
             } else {
                 Ok(())
             }
         }
         DatabasePrivilegesDiff::Modified(_) if privilege_row.is_none() => {
-            Err(ModifyDatabasePrivilegesError::DiffDoesNotApply(
+            Err(ModifyDatabasePrivilegesError::DiffDoesNotApply(Box::new(
                 DiffDoesNotApplyError::RowDoesNotExist(
                     diff.get_database_name().to_owned(),
                     diff.get_user_name().to_owned(),
                 ),
-            ))
+            )))
         }
         DatabasePrivilegesDiff::Modified(row_diff) => {
             let row = privilege_row.unwrap();
@@ -382,21 +382,21 @@ async fn validate_diff(
                 );
 
             if error_exists {
-                Err(ModifyDatabasePrivilegesError::DiffDoesNotApply(
+                Err(ModifyDatabasePrivilegesError::DiffDoesNotApply(Box::new(
                     DiffDoesNotApplyError::RowPrivilegeChangeDoesNotApply(row_diff.to_owned(), row),
-                ))
+                )))
             } else {
                 Ok(())
             }
         }
         DatabasePrivilegesDiff::Deleted(_) => {
             if privilege_row.is_none() {
-                Err(ModifyDatabasePrivilegesError::DiffDoesNotApply(
+                Err(ModifyDatabasePrivilegesError::DiffDoesNotApply(Box::new(
                     DiffDoesNotApplyError::RowDoesNotExist(
                         diff.get_database_name().to_owned(),
                         diff.get_user_name().to_owned(),
                     ),
-                ))
+                )))
             } else {
                 Ok(())
             }
