@@ -106,6 +106,9 @@ pub fn generate_editor_content_from_privilege_data(
             create_tmp_table_priv: false,
             lock_tables_priv: false,
             references_priv: false,
+            create_view_priv: false,
+            show_view_priv: false,
+            trigger_priv: false,
         },
         longest_database_name,
         longest_username,
@@ -265,6 +268,27 @@ fn parse_privilege_row_from_editor(row: &str) -> PrivilegeRowParseResult {
             Ok(p) => p,
             Err(e) => return PrivilegeRowParseResult::ParserError(e),
         },
+        create_view_priv: match parse_privilege_cell_from_editor(
+            parts.get(13).unwrap(),
+            DATABASE_PRIVILEGE_FIELDS[13],
+        ) {
+            Ok(p) => p,
+            Err(e) => return PrivilegeRowParseResult::ParserError(e),
+        },
+        show_view_priv: match parse_privilege_cell_from_editor(
+            parts.get(14).unwrap(),
+            DATABASE_PRIVILEGE_FIELDS[14],
+        ) {
+            Ok(p) => p,
+            Err(e) => return PrivilegeRowParseResult::ParserError(e),
+        },
+        trigger_priv: match parse_privilege_cell_from_editor(
+            parts.get(15).unwrap(),
+            DATABASE_PRIVILEGE_FIELDS[15],
+        ) {
+            Ok(p) => p,
+            Err(e) => return PrivilegeRowParseResult::ParserError(e),
+        },
     };
 
     PrivilegeRowParseResult::PrivilegeRow(row)
@@ -340,6 +364,9 @@ mod tests {
                 create_tmp_table_priv: true,
                 lock_tables_priv: false,
                 references_priv: true,
+                create_view_priv: false,
+                show_view_priv: true,
+                trigger_priv: false,
             },
             DatabasePrivilegeRow {
                 db: "test_abcdefghijlkmno".into(),
@@ -355,6 +382,9 @@ mod tests {
                 create_tmp_table_priv: true,
                 lock_tables_priv: false,
                 references_priv: true,
+                create_view_priv: false,
+                show_view_priv: true,
+                trigger_priv: false,
             },
         ];
 
@@ -369,9 +399,9 @@ mod tests {
             "#",
             "# Lines starting with '#' are comments and will be ignored.",
             "",
-            "Database             User        Select Insert Update Delete Create Drop Alter Index Temp Lock References",
-            "test_abcdef          test_abcdef Y      N      Y      N      Y      N    Y     N     Y    N    Y",
-            "test_abcdefghijlkmno test_abcdef Y      N      Y      N      Y      N    Y     N     Y    N    Y",
+            "Database             User        Select Insert Update Delete Create Drop Alter Index Temp Lock References CreateView ShowView Trigger",
+            "test_abcdef          test_abcdef Y      N      Y      N      Y      N    Y     N     Y    N    Y          N          Y        N",
+            "test_abcdefghijlkmno test_abcdef Y      N      Y      N      Y      N    Y     N     Y    N    Y          N          Y        N",
         ];
 
         let generated_lines: Vec<&str> = content.lines().collect();
@@ -396,6 +426,9 @@ mod tests {
                 create_tmp_table_priv: true,
                 lock_tables_priv: true,
                 references_priv: true,
+                create_view_priv: true,
+                show_view_priv: true,
+                trigger_priv: true,
             },
             DatabasePrivilegeRow {
                 db: "db".into(),
@@ -411,6 +444,9 @@ mod tests {
                 create_tmp_table_priv: false,
                 lock_tables_priv: false,
                 references_priv: false,
+                create_view_priv: false,
+                show_view_priv: false,
+                trigger_priv: false,
             },
         ];
 

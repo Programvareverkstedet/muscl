@@ -46,6 +46,9 @@ pub struct DatabasePrivilegeRowDiff {
     pub create_tmp_table_priv: Option<DatabasePrivilegeChange>,
     pub lock_tables_priv: Option<DatabasePrivilegeChange>,
     pub references_priv: Option<DatabasePrivilegeChange>,
+    pub create_view_priv: Option<DatabasePrivilegeChange>,
+    pub show_view_priv: Option<DatabasePrivilegeChange>,
+    pub trigger_priv: Option<DatabasePrivilegeChange>,
 }
 
 impl DatabasePrivilegeRowDiff {
@@ -80,6 +83,12 @@ impl DatabasePrivilegeRowDiff {
                 row1.references_priv,
                 row2.references_priv,
             ),
+            create_view_priv: DatabasePrivilegeChange::new(
+                row1.create_view_priv,
+                row2.create_view_priv,
+            ),
+            show_view_priv: DatabasePrivilegeChange::new(row1.show_view_priv, row2.show_view_priv),
+            trigger_priv: DatabasePrivilegeChange::new(row1.trigger_priv, row2.trigger_priv),
         }
     }
 
@@ -97,6 +106,9 @@ impl DatabasePrivilegeRowDiff {
             && self.create_tmp_table_priv.is_none()
             && self.lock_tables_priv.is_none()
             && self.references_priv.is_none()
+            && self.create_view_priv.is_none()
+            && self.show_view_priv.is_none()
+            && self.trigger_priv.is_none()
     }
 
     /// Retrieves the privilege change for a given privilege name.
@@ -116,6 +128,9 @@ impl DatabasePrivilegeRowDiff {
             "create_tmp_table_priv" => Ok(self.create_tmp_table_priv),
             "lock_tables_priv" => Ok(self.lock_tables_priv),
             "references_priv" => Ok(self.references_priv),
+            "create_view_priv" => Ok(self.create_view_priv),
+            "show_view_priv" => Ok(self.show_view_priv),
+            "trigger_priv" => Ok(self.trigger_priv),
             _ => anyhow::bail!("Unknown privilege name: {privilege_name}"),
         }
     }
@@ -157,6 +172,15 @@ impl DatabasePrivilegeRowDiff {
         if other.references_priv.is_some() {
             self.references_priv = other.references_priv;
         }
+        if other.create_view_priv.is_some() {
+            self.create_view_priv = other.create_view_priv;
+        }
+        if other.show_view_priv.is_some() {
+            self.show_view_priv = other.show_view_priv;
+        }
+        if other.trigger_priv.is_some() {
+            self.trigger_priv = other.trigger_priv;
+        }
     }
 
     /// Removes any no-op changes from the diff, based on the original privilege row.
@@ -190,6 +214,9 @@ impl DatabasePrivilegeRowDiff {
         );
         self.lock_tables_priv = new_value(self.lock_tables_priv.as_ref(), from.lock_tables_priv);
         self.references_priv = new_value(self.references_priv.as_ref(), from.references_priv);
+        self.create_view_priv = new_value(self.create_view_priv.as_ref(), from.create_view_priv);
+        self.show_view_priv = new_value(self.show_view_priv.as_ref(), from.show_view_priv);
+        self.trigger_priv = new_value(self.trigger_priv.as_ref(), from.trigger_priv);
     }
 
     fn apply(&self, base: &mut DatabasePrivilegeRow) {
@@ -215,6 +242,9 @@ impl DatabasePrivilegeRowDiff {
         );
         apply_change(self.lock_tables_priv.as_ref(), &mut base.lock_tables_priv);
         apply_change(self.references_priv.as_ref(), &mut base.references_priv);
+        apply_change(self.create_view_priv.as_ref(), &mut base.create_view_priv);
+        apply_change(self.show_view_priv.as_ref(), &mut base.show_view_priv);
+        apply_change(self.trigger_priv.as_ref(), &mut base.trigger_priv);
     }
 }
 
@@ -252,6 +282,9 @@ impl fmt::Display for DatabasePrivilegeRowDiff {
         format_change(f, self.create_tmp_table_priv, "create_tmp_table_priv")?;
         format_change(f, self.lock_tables_priv, "lock_tables_priv")?;
         format_change(f, self.references_priv, "references_priv")?;
+        format_change(f, self.create_view_priv, "create_view_priv")?;
+        format_change(f, self.show_view_priv, "show_view_priv")?;
+        format_change(f, self.trigger_priv, "trigger_priv")?;
 
         Ok(())
     }
@@ -439,6 +472,9 @@ pub fn create_or_modify_privilege_rows(
                 create_tmp_table_priv: false,
                 lock_tables_priv: false,
                 references_priv: false,
+                create_view_priv: false,
+                show_view_priv: false,
+                trigger_priv: false,
             };
             diff.apply(&mut new_row);
             result.insert(DatabasePrivilegesDiff::New(new_row));
@@ -577,6 +613,9 @@ mod tests {
             create_tmp_table_priv: false,
             lock_tables_priv: false,
             references_priv: false,
+            create_view_priv: false,
+            show_view_priv: false,
+            trigger_priv: false,
         };
         let row2 = DatabasePrivilegeRow {
             db: "db".into(),
@@ -594,6 +633,9 @@ mod tests {
             create_tmp_table_priv: false,
             lock_tables_priv: false,
             references_priv: false,
+            create_view_priv: false,
+            show_view_priv: false,
+            trigger_priv: false,
         };
 
         let diff = DatabasePrivilegeRowDiff::from_rows(&row1, &row2);
@@ -656,6 +698,9 @@ mod tests {
             create_tmp_table_priv: true,
             lock_tables_priv: true,
             references_priv: false,
+            create_view_priv: false,
+            show_view_priv: false,
+            trigger_priv: false,
         };
 
         let mut row_to_be_deleted = row_to_be_modified.to_owned();

@@ -83,6 +83,9 @@ pub fn print_list_privileges_output_status(output: &ListPrivilegesResponse, long
                 c->yn(row.create_tmp_table_priv),
                 c->yn(row.lock_tables_priv),
                 c->yn(row.references_priv),
+                c->yn(row.create_view_priv),
+                c->yn(row.show_view_priv),
+                c->yn(row.trigger_priv),
             ]);
         }
         // }

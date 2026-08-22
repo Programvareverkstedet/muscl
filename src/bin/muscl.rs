@@ -241,6 +241,9 @@ pub enum ClientCommand {
     ///    - `t` - CREATE TEMPORARY TABLES
     ///    - `l` - LOCK TABLES
     ///    - `r` - REFERENCES
+    ///    - `v` - CREATE VIEW
+    ///    - `V` - SHOW VIEW
+    ///    - `T` - TRIGGER
     ///    - `A` - ALL PRIVILEGES
     ///
     /// 3. Non-interactive batch mode:

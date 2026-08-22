@@ -7,7 +7,7 @@ use super::diff::{DatabasePrivilegeChange, DatabasePrivilegeRowDiff};
 use crate::core::types::{MySQLDatabase, MySQLUser};
 
 const VALID_PRIVILEGE_EDIT_CHARS: &[char] = &[
-    's', 'i', 'u', 'd', 'c', 'D', 'a', 'A', 'I', 't', 'l', 'r', 'A',
+    's', 'i', 'u', 'd', 'c', 'D', 'a', 'I', 't', 'l', 'r', 'v', 'V', 'T', 'A',
 ];
 
 /// This enum represents a part of a CLI argument for editing database privileges,
@@ -101,7 +101,7 @@ impl DatabasePrivilegeEditEntry {
     /// - username is the name of the user to edit privileges for
     /// - privileges is a string of characters representing the privileges to add, set or remove
     /// - the `+` or `-` prefix indicates whether to add or remove the privileges, if omitted the privileges are set directly
-    /// - privileges characters are: siudcDaAItlrA
+    /// - privileges characters are: siudcDaItlrvVTA
     pub fn parse_from_str(arg: &str) -> anyhow::Result<Self> {
         let parts: Vec<&str> = arg.split(':').collect();
         if parts.len() != 3 {
@@ -141,6 +141,9 @@ impl DatabasePrivilegeEditEntry {
                     create_tmp_table_priv: Some(DatabasePrivilegeChange::YesToNo),
                     lock_tables_priv: Some(DatabasePrivilegeChange::YesToNo),
                     references_priv: Some(DatabasePrivilegeChange::YesToNo),
+                    create_view_priv: Some(DatabasePrivilegeChange::YesToNo),
+                    show_view_priv: Some(DatabasePrivilegeChange::YesToNo),
+                    trigger_priv: Some(DatabasePrivilegeChange::YesToNo),
                 };
                 for priv_char in &self.privilege_edit.privileges {
                     match priv_char {
@@ -155,6 +158,9 @@ impl DatabasePrivilegeEditEntry {
                         't' => diff.create_tmp_table_priv = Some(DatabasePrivilegeChange::NoToYes),
                         'l' => diff.lock_tables_priv = Some(DatabasePrivilegeChange::NoToYes),
                         'r' => diff.references_priv = Some(DatabasePrivilegeChange::NoToYes),
+                        'v' => diff.create_view_priv = Some(DatabasePrivilegeChange::NoToYes),
+                        'V' => diff.show_view_priv = Some(DatabasePrivilegeChange::NoToYes),
+                        'T' => diff.trigger_priv = Some(DatabasePrivilegeChange::NoToYes),
                         'A' => {
                             diff.select_priv = Some(DatabasePrivilegeChange::NoToYes);
                             diff.insert_priv = Some(DatabasePrivilegeChange::NoToYes);
@@ -167,6 +173,9 @@ impl DatabasePrivilegeEditEntry {
                             diff.create_tmp_table_priv = Some(DatabasePrivilegeChange::NoToYes);
                             diff.lock_tables_priv = Some(DatabasePrivilegeChange::NoToYes);
                             diff.references_priv = Some(DatabasePrivilegeChange::NoToYes);
+                            diff.create_view_priv = Some(DatabasePrivilegeChange::NoToYes);
+                            diff.show_view_priv = Some(DatabasePrivilegeChange::NoToYes);
+                            diff.trigger_priv = Some(DatabasePrivilegeChange::NoToYes);
                         }
                         _ => unreachable!(),
                     }
@@ -187,6 +196,9 @@ impl DatabasePrivilegeEditEntry {
                     create_tmp_table_priv: None,
                     lock_tables_priv: None,
                     references_priv: None,
+                    create_view_priv: None,
+                    show_view_priv: None,
+                    trigger_priv: None,
                 };
                 let value = match self.privilege_edit.type_ {
                     DatabasePrivilegeEditEntryType::Add => DatabasePrivilegeChange::NoToYes,
@@ -206,6 +218,9 @@ impl DatabasePrivilegeEditEntry {
                         't' => diff.create_tmp_table_priv = Some(value),
                         'l' => diff.lock_tables_priv = Some(value),
                         'r' => diff.references_priv = Some(value),
+                        'v' => diff.create_view_priv = Some(value),
+                        'V' => diff.show_view_priv = Some(value),
+                        'T' => diff.trigger_priv = Some(value),
                         'A' => {
                             diff.select_priv = Some(value);
                             diff.insert_priv = Some(value);
@@ -218,6 +233,9 @@ impl DatabasePrivilegeEditEntry {
                             diff.create_tmp_table_priv = Some(value);
                             diff.lock_tables_priv = Some(value);
                             diff.references_priv = Some(value);
+                            diff.create_view_priv = Some(value);
+                            diff.show_view_priv = Some(value);
+                            diff.trigger_priv = Some(value);
                         }
                         _ => unreachable!(),
                     }

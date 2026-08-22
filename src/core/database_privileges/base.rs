@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// This is the list of fields that are used to fetch the db + user + privileges
 /// from the `db` table in the database. If you need to add or remove privilege
 /// fields, this is a good place to start.
-pub const DATABASE_PRIVILEGE_FIELDS: [&str; 13] = [
+pub const DATABASE_PRIVILEGE_FIELDS: [&str; 16] = [
     "Db",
     "User",
     "select_priv",
@@ -23,6 +23,9 @@ pub const DATABASE_PRIVILEGE_FIELDS: [&str; 13] = [
     "create_tmp_table_priv",
     "lock_tables_priv",
     "references_priv",
+    "create_view_priv",
+    "show_view_priv",
+    "trigger_priv",
 ];
 
 // NOTE: ord is needed for BTreeSet to accept the type, but it
@@ -45,6 +48,9 @@ pub struct DatabasePrivilegeRow {
     pub create_tmp_table_priv: bool,
     pub lock_tables_priv: bool,
     pub references_priv: bool,
+    pub create_view_priv: bool,
+    pub show_view_priv: bool,
+    pub trigger_priv: bool,
 }
 
 impl DatabasePrivilegeRow {
@@ -63,6 +69,9 @@ impl DatabasePrivilegeRow {
             "create_tmp_table_priv" => Some(self.create_tmp_table_priv),
             "lock_tables_priv" => Some(self.lock_tables_priv),
             "references_priv" => Some(self.references_priv),
+            "create_view_priv" => Some(self.create_view_priv),
+            "show_view_priv" => Some(self.show_view_priv),
+            "trigger_priv" => Some(self.trigger_priv),
             _ => None,
         }
     }
@@ -100,6 +109,9 @@ pub fn db_priv_field_human_readable_name(name: &str) -> String {
         "create_tmp_table_priv" => "Temp".to_owned(),
         "lock_tables_priv" => "Lock".to_owned(),
         "references_priv" => "References".to_owned(),
+        "create_view_priv" => "CreateView".to_owned(),
+        "show_view_priv" => "ShowView".to_owned(),
+        "trigger_priv" => "Trigger".to_owned(),
         _ => format!("Unknown({name})"),
     }
 }
@@ -120,6 +132,9 @@ pub fn db_priv_field_single_character_name(name: &str) -> &str {
         "create_tmp_table_priv" => "t",
         "lock_tables_priv" => "l",
         "references_priv" => "r",
+        "create_view_priv" => "v",
+        "show_view_priv" => "V",
+        "trigger_priv" => "T",
         _ => "?",
     }
 }

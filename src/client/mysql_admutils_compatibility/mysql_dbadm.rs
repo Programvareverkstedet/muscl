@@ -35,7 +35,7 @@ spawn the editor stored in the $EDITOR environment variable.
 (pico will be used if the variable is unset)
 
 The file should contain one line per user, starting with the
-username and followed by ten Y/N-values separated by whitespace.
+username and followed by fourteen Y/N-values separated by whitespace.
 Lines starting with # are ignored.
 
 The Y/N-values corresponds to the following mysql privileges:
@@ -50,6 +50,9 @@ The Y/N-values corresponds to the following mysql privileges:
   Temp       - Enables use of CREATE TEMPORARY TABLE
   Lock       - Enables use of LOCK TABLE
   References - Enables use of REFERENCES
+  Create view - Enables use of CREATE VIEW
+  Show view   - Enables use of SHOW CREATE VIEW
+  Trigger     - Enables use of CREATE TRIGGER and DROP TRIGGER
 ";
 
 /// Create, drop or edit permissions for the DATABASE(s),
@@ -338,8 +341,8 @@ fn print_db_privs(name: &str, rows: Vec<DatabasePrivilegeRow>) {
     println!(
         concat!(
             "Database '{}':\n",
-            "# User                Select  Insert  Update  Delete  Create   Drop   Alter   Index    Temp    Lock  References\n",
-            "# ----------------    ------  ------  ------  ------  ------   ----   -----   -----    ----    ----  ----------"
+            "# User                Select  Insert  Update  Delete  Create   Drop   Alter   Index    Temp    Lock  References  Create view  Show view  Trigger\n",
+            "# ----------------    ------  ------  ------  ------  ------   ----   -----   -----    ----    ----  ----------  -----------  ---------  -------"
         ),
         name,
     );
@@ -348,7 +351,7 @@ fn print_db_privs(name: &str, rows: Vec<DatabasePrivilegeRow>) {
     } else {
         for privilege in rows {
             println!(
-                "  {:<16}      {:<7} {:<7} {:<7} {:<7} {:<7} {:<7} {:<7} {:<7} {:<7} {:<7} {}",
+                "  {:<16}      {:<7} {:<7} {:<7} {:<7} {:<7} {:<7} {:<7} {:<7} {:<7} {:<7} {:<11} {:<12} {:<10} {}",
                 privilege.user,
                 yn(privilege.select_priv),
                 yn(privilege.insert_priv),
@@ -360,7 +363,10 @@ fn print_db_privs(name: &str, rows: Vec<DatabasePrivilegeRow>) {
                 yn(privilege.index_priv),
                 yn(privilege.create_tmp_table_priv),
                 yn(privilege.lock_tables_priv),
-                yn(privilege.references_priv)
+                yn(privilege.references_priv),
+                yn(privilege.create_view_priv),
+                yn(privilege.show_view_priv),
+                yn(privilege.trigger_priv)
             );
         }
     }

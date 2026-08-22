@@ -74,6 +74,9 @@ impl FromRow<'_, MySqlRow> for DatabasePrivilegeRow {
             create_tmp_table_priv: get_mysql_row_priv_field(row, 10)?,
             lock_tables_priv: get_mysql_row_priv_field(row, 11)?,
             references_priv: get_mysql_row_priv_field(row, 12)?,
+            create_view_priv: get_mysql_row_priv_field(row, 13)?,
+            show_view_priv: get_mysql_row_priv_field(row, 14)?,
+            trigger_priv: get_mysql_row_priv_field(row, 15)?,
         })
     }
 }
@@ -260,6 +263,9 @@ async fn unsafe_apply_privilege_diff(
                 .bind(yn(p.create_tmp_table_priv))
                 .bind(yn(p.lock_tables_priv))
                 .bind(yn(p.references_priv))
+                .bind(yn(p.create_view_priv))
+                .bind(yn(p.show_view_priv))
+                .bind(yn(p.trigger_priv))
                 .bind("%")
                 .execute(connection)
                 .await
@@ -300,6 +306,9 @@ async fn unsafe_apply_privilege_diff(
                 .bind(p.create_tmp_table_priv.map(change_to_yn))
                 .bind(p.lock_tables_priv.map(change_to_yn))
                 .bind(p.references_priv.map(change_to_yn))
+                .bind(p.create_view_priv.map(change_to_yn))
+                .bind(p.show_view_priv.map(change_to_yn))
+                .bind(p.trigger_priv.map(change_to_yn))
                 .bind(p.db.to_string())
                 .bind(p.user.to_string())
                 .bind("%")
