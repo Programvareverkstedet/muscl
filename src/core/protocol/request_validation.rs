@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use indoc::indoc;
 use nix::{libc::gid_t, unistd::Group};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -136,7 +137,63 @@ impl ValidationError {
     }
 }
 
-pub type GroupDenylist = HashSet<gid_t>;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupNamePattern(String);
+
+impl GroupNamePattern {
+    pub fn new(pattern: impl Into<String>) -> Self {
+        Self(pattern.into())
+    }
+
+    pub fn to_regex(&self) -> Result<Regex, regex::Error> {
+        let mut regex_str = String::from("^");
+        for c in self.0.chars() {
+            match c {
+                '*' => regex_str.push_str(".*"),
+                '?' => regex_str.push('.'),
+                _ => regex_str.push_str(&regex::escape(&c.to_string())),
+            }
+        }
+        regex_str.push('$');
+        Regex::new(&regex_str)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GroupDenylist {
+    gids: HashSet<gid_t>,
+    name_patterns: Vec<GroupNamePattern>,
+}
+
+impl GroupDenylist {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert_gid(&mut self, gid: gid_t) {
+        self.gids.insert(gid);
+    }
+
+    pub fn insert_name_pattern(&mut self, pattern: GroupNamePattern) {
+        self.name_patterns.push(pattern);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.gids.is_empty() && self.name_patterns.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.gids.len() + self.name_patterns.len()
+    }
+
+    pub fn matches(&self, group: &Group) -> bool {
+        self.gids.contains(&group.gid.as_raw())
+            || self
+                .name_patterns
+                .iter()
+                .any(|p| p.to_regex().is_ok_and(|regex| regex.is_match(&group.name)))
+    }
+}
 
 const MAX_NAME_LENGTH: usize = 64;
 
@@ -200,13 +257,10 @@ pub fn validate_authorization_by_group_denylist(
         return Ok(());
     }
 
-    let user_group = Group::from_name(name)
-        .ok()
-        .flatten()
-        .map(|g| g.gid.as_raw());
+    let user_group = Group::from_name(name).ok().flatten();
 
-    if let Some(gid) = user_group
-        && group_denylist.contains(&gid)
+    if let Some(group) = user_group
+        && group_denylist.matches(&group)
     {
         Err(AuthorizationError::DenylistError)
     } else {

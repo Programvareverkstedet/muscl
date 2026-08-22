@@ -11,7 +11,7 @@ pub fn get_user_filtered_groups(user: &UnixUser, group_denylist: &GroupDenylist)
         .filter_map(|group_name| {
             match Group::from_name(&group_name) {
                 Ok(Some(group)) => {
-                    if group_denylist.contains(&group.gid.as_raw()) {
+                    if group_denylist.matches(&group) {
                         None
                     } else {
                         Some(group.name)

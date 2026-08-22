@@ -34,6 +34,7 @@ nix = { version = "0.31.3", features = ["fs", "process", "socket", "user"] }
 num_cpus = "1.17.0"
 prettytable = "0.10.0"
 rand = "0.10.2"
+regex = "1.13.1"
 serde = "1.0.229"
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sqlx = { version = "0.9.0", features = ["runtime-tokio", "mysql", "tls-rustls"] }
@@ -59,7 +60,6 @@ git2 = { version = "0.21.0", default-features = false }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
-regex = "1.13.1"
 
 [features]
 default = ["mysql-admutils-compatibility"]
