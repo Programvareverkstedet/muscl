@@ -44,7 +44,19 @@ in
              group_denylist = lib.mkOption {
                type = with lib.types; nullOr (listOf (either str ints.unsigned));
                default = [ "wheel" ];
-               description = "List of groups/GIDs that can not be used as prefixes for databases/database users";
+               example = [
+                 "wheel"
+                 1000
+                 "gro?p"
+                 "group_*"
+               ];
+               description = ''
+                 List of groups/GIDs that can not be used as prefixes for databases/database users.
+
+                 ::: {.note}
+                 Group names support the `*` and `?` wildcards; GIDs do not.
+                 :::
+               '';
              };
           };
 
