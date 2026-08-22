@@ -75,9 +75,11 @@ jobs:
           LLVM_PROFILE_FILE: "target/coverage/%p-%m.profraw"
 
       - name: Install grcov
+        if: always()
         run: cargo binstall -y grcov
 
       - name: Generate coverage report
+        if: always()
         run: |
           grcov \
             --source-dir . \
@@ -96,6 +98,7 @@ jobs:
             target/coverage/
 
       - name: Upload test report
+        if: always()
         uses: https://git.pvv.ntnu.no/Projects/rsync-action@v1
         with:
           source: target/coverage/html/
@@ -117,6 +120,7 @@ jobs:
         run: cargo doc --all-features --document-private-items --release
 
       - name: Transfer files
+        if: always()
         uses: https://git.pvv.ntnu.no/Projects/rsync-action@main
         with:
           source: target/doc/
