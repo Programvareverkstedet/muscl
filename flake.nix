@@ -49,6 +49,10 @@
         ${lib.getExe pkgs.python3} -m http.server -d "${self.packages.${system}.coverage}/html"
       '') "Serve code coverage report at http://localhost:8000";
 
+      gitea-workflows = mkApp (pkgs.writeShellScript "muscl-run-gitea-workflows" ''
+        ${lib.getExe pkgs.gitea-actions-runner} exec -i node:current-trixie "$@"
+      '') "Run all gitea workflows locally";
+
       vm = mkVm "vm" "Start a NixOS VM with muscl and mariadb installed";
       vm-mysql = mkVm "vm-mysql" "Start a NixOS VM with muscl and mysql installed";
       vm-suid = mkVm "vm-suid" "Start a NixOS VM with muscl as SUID/SGID installed";
