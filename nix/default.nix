@@ -8,6 +8,9 @@
 , cargoToml
 , cargoLock
 , src
+, commitHash
+, commitDate
+, commitIsDirty
 
 , useCrane ? false
 , craneLib ? null
@@ -59,6 +62,12 @@ buildFunction ({
   inherit pname;
   inherit (cargoToml.package) version;
   inherit src;
+
+  env = {
+    GIT_COMMIT = commitHash;
+    GIT_COMMIT_DATE = commitDate;
+    GIT_DIRTY = lib.boolToString commitIsDirty;
+  };
 
   nativeBuildInputs = [ installShellFiles ];
   postInstall = let

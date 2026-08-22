@@ -107,26 +107,36 @@
           ./assets
         ];
       };
+
+
+      inherit (self) sourceInfo;
+      commitHash = sourceInfo.rev or (lib.substring 0 40 sourceInfo.dirtyRev);
+      commitDate = "${lib.substring 0 4 sourceInfo.lastModifiedDate}-${lib.substring 4 2 sourceInfo.lastModifiedDate}-${lib.substring 6 2 sourceInfo.lastModifiedDate}";
+      commitIsDirty = sourceInfo ? dirtyRev;
     in {
       default = self.packages.${system}.muscl-crane;
 
-      muscl = pkgs.callPackage ./nix/default.nix { inherit cargoToml cargoLock src; };
+      muscl = pkgs.callPackage ./nix/default.nix {
+        inherit cargoToml cargoLock src commitHash commitDate commitIsDirty;
+      };
       muscl-crane = pkgs.callPackage ./nix/default.nix {
         useCrane = true;
-        inherit cargoToml cargoLock src craneLib;
+        inherit cargoToml cargoLock src craneLib commitHash commitDate commitIsDirty;
       };
 
       muscl-suid = pkgs.callPackage ./nix/default.nix {
         suidSgidSupport = true;
-        inherit cargoToml cargoLock src;
+        inherit cargoToml cargoLock src commitHash commitDate commitIsDirty;
       };
       muscl-suid-crane = pkgs.callPackage ./nix/default.nix {
         useCrane = true;
         suidSgidSupport = true;
-        inherit cargoToml cargoLock src craneLib;
+        inherit cargoToml cargoLock src craneLib commitHash commitDate commitIsDirty;
       };
 
-      coverage = pkgs.callPackage ./nix/coverage.nix { inherit cargoToml cargoLock src; };
+      coverage = pkgs.callPackage ./nix/coverage.nix {
+        inherit cargoToml cargoLock src commitHash commitDate commitIsDirty;
+      };
       filteredSource = pkgs.runCommandLocal "filtered-source" { } ''
         ln -s ${src} $out
       '';

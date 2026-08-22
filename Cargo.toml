@@ -57,6 +57,7 @@ tracing-journald = "0.3.2"
 anyhow = "1.0.104"
 build-info-build = "0.0.46"
 git2 = { version = "0.21.0", default-features = false }
+time = { version = "0.3", features = ["formatting", "macros"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

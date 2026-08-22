@@ -40,6 +40,11 @@ const fn long_version() -> &'static str {
         };
     }
 
+    const DIRTY_SUFFIX: &str = match env!("GIT_DIRTY").as_bytes() {
+        b"true" => " (dirty)",
+        _ => "",
+    };
+
     const_format::concatcp!(
         crate_version!(),
         "\n",
@@ -48,6 +53,10 @@ const fn long_version() -> &'static str {
         "\n",
         "commit: ",
         env!("GIT_COMMIT"),
+        DIRTY_SUFFIX,
+        "\n",
+        "commit date: ",
+        env!("GIT_COMMIT_DATE"),
         "\n\n",
         "[features]\n",
         feature!("SUID/SGID mode", "suid-sgid-mode"),

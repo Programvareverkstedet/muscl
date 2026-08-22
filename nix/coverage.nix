@@ -2,9 +2,13 @@
   lib
 , stdenvNoCC
 , rustPlatform
+
 , cargoToml
 , cargoLock
 , src
+, commitHash
+, commitDate
+, commitIsDirty
 
 , rust-bin
 , cargo-nextest
@@ -19,6 +23,9 @@ stdenvNoCC.mkDerivation {
   env = {
     RUSTFLAGS = "-Cinstrument-coverage";
     LLVM_PROFILE_FILE = "target/coverage/%p-%m.profraw";
+    GIT_COMMIT = commitHash;
+    GIT_COMMIT_DATE = commitDate;
+    GIT_DIRTY = lib.boolToString commitIsDirty;
   };
 
   cargoDeps = rustPlatform.importCargoLock {
