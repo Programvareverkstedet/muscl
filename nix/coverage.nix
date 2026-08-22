@@ -36,9 +36,9 @@ stdenvNoCC.mkDerivation {
     rustPlatform.cargoSetupHook
     cargo-nextest
     grcov
-    (rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
-      extensions = [ "llvm-tools-preview" ];
-    }))
+    (rust-bin.stable.latest.default.override {
+      extensions = [ "llvm-tools" ];
+    })
   ];
 
   buildPhase = ''
