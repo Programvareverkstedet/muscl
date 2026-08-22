@@ -239,4 +239,38 @@ mod tests {
 
         assert!(group_denylist.is_empty());
     }
+
+    #[test]
+    fn test_parse_group_denylist_wildcard_only_entry_star() {
+        let denylist_content = indoc! {"
+            group:*
+        "};
+
+        let lines = denylist_content.lines();
+        let group_denylist = parse_group_denylist(Path::new("test_denylist"), lines);
+
+        assert_eq!(group_denylist.len(), 1);
+
+        // `group:*` matches any group name, including empty and multi-character ones.
+        assert!(group_denylist.matches(&fake_group("", 100)));
+        assert!(group_denylist.matches(&fake_group("a", 101)));
+        assert!(group_denylist.matches(&fake_group("anything", 102)));
+    }
+
+    #[test]
+    fn test_parse_group_denylist_wildcard_only_entry_question_mark() {
+        let denylist_content = indoc! {"
+            group:?
+        "};
+
+        let lines = denylist_content.lines();
+        let group_denylist = parse_group_denylist(Path::new("test_denylist"), lines);
+
+        assert_eq!(group_denylist.len(), 1);
+
+        // `group:?` matches any single-character group name only.
+        assert!(!group_denylist.matches(&fake_group("", 103)));
+        assert!(group_denylist.matches(&fake_group("a", 104)));
+        assert!(!group_denylist.matches(&fake_group("ab", 105)));
+    }
 }

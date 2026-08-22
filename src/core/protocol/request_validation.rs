@@ -142,7 +142,41 @@ pub struct GroupNamePattern(String);
 
 impl GroupNamePattern {
     pub fn new(pattern: impl Into<String>) -> Self {
-        Self(pattern.into())
+        Self(pattern.into()).normalize()
+    }
+
+    /// Collapses runs of consecutive `*`/`?` wildcards into a canonical form.
+    ///
+    /// - `***` -> `*`
+    /// - `*?*?` -> `??*`
+    fn normalize(&self) -> Self {
+        let mut result = String::with_capacity(self.0.len());
+        let mut chars = self.0.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '*' || c == '?' {
+                let mut question_marks = usize::from(c == '?');
+                let mut has_star = c == '*';
+
+                while let Some(&next) = chars.peek() {
+                    match next {
+                        '?' => question_marks += 1,
+                        '*' => has_star = true,
+                        _ => break,
+                    }
+                    chars.next();
+                }
+
+                result.extend(std::iter::repeat_n('?', question_marks));
+                if has_star {
+                    result.push('*');
+                }
+            } else {
+                result.push(c);
+            }
+        }
+
+        Self(result)
     }
 
     pub fn to_regex(&self) -> Result<Regex, regex::Error> {
@@ -308,6 +342,43 @@ mod tests {
             validate_name(&"a".repeat(MAX_NAME_LENGTH + 1)),
             Err(NameValidationError::TooLong)
         );
+    }
+
+    #[test]
+    fn test_group_name_pattern_normalize() {
+        assert_eq!(GroupNamePattern::new("*").0, "*");
+        assert_eq!(GroupNamePattern::new("?").0, "?");
+        assert_eq!(GroupNamePattern::new("**").0, "*");
+        assert_eq!(GroupNamePattern::new("***").0, "*");
+        assert_eq!(GroupNamePattern::new("??").0, "??");
+        assert_eq!(GroupNamePattern::new("?*").0, "?*");
+        assert_eq!(GroupNamePattern::new("*?").0, "?*");
+        assert_eq!(GroupNamePattern::new("*?*?*").0, "??*");
+        assert_eq!(GroupNamePattern::new("admin**?*svc").0, "admin?*svc");
+        assert_eq!(GroupNamePattern::new("admin").0, "admin");
+        assert_eq!(GroupNamePattern::new("").0, "");
+    }
+
+    #[test]
+    fn test_group_name_pattern_only_wildcards() {
+        let star = GroupNamePattern::new("*");
+        assert!(star.to_regex().unwrap().is_match(""));
+        assert!(star.to_regex().unwrap().is_match("a"));
+        assert!(star.to_regex().unwrap().is_match("anything"));
+
+        let question_mark = GroupNamePattern::new("?");
+        assert!(!question_mark.to_regex().unwrap().is_match(""));
+        assert!(question_mark.to_regex().unwrap().is_match("a"));
+        assert!(!question_mark.to_regex().unwrap().is_match("ab"));
+
+        let double_question_mark = GroupNamePattern::new("??");
+        assert!(!double_question_mark.to_regex().unwrap().is_match("a"));
+        assert!(double_question_mark.to_regex().unwrap().is_match("ab"));
+        assert!(!double_question_mark.to_regex().unwrap().is_match("abc"));
+
+        let collapsed_stars = GroupNamePattern::new("***");
+        assert!(collapsed_stars.to_regex().unwrap().is_match(""));
+        assert!(collapsed_stars.to_regex().unwrap().is_match("anything"));
     }
 
     #[test]
