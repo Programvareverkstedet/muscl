@@ -165,7 +165,7 @@ in
         name = cfg.settings.mysql.username;
         ensurePermissions = {
           "mysql.*" = "SELECT, INSERT, UPDATE, DELETE";
-          "*.*" = "GRANT OPTION, CREATE, DROP";
+          "*.*" = "GRANT OPTION, CREATE, DROP, RELOAD";
         };
       }
     ];
