@@ -13,12 +13,20 @@ The deb package comes with a default denylist that disallows some common system 
 
 The format of the file is one group name or GID per line. Lines starting with `#` and empty lines are ignored.
 
+Single-character wildcards (`?`) and multi-character wildcards (`*`) are supported for group names.
+
 ```
 # Disallow using the 'root' group as a prefix
 gid:0
 
 # Disallow using the 'adm' group as a prefix
 group:adm
+
+# Disallow using any group starting with 'sys' as a prefix
+group:sys*
+
+# Disallow example groups test1, test2 and test3
+group:test?
 ```
 
 > [!NOTE]
