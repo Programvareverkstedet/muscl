@@ -150,5 +150,11 @@
       # NOTE: the non-crane build runs tests during checkPhase
       inherit (self.packages.${system}) muscl muscl-suid;
     });
+
+    tests = forAllSystems (system: pkgs: _: let
+      pkgs' = pkgs.extend self.overlays.muscl-crane;
+    in
+      import ./nix/tests { inherit self; pkgs = pkgs'; }
+    );
   };
 }
