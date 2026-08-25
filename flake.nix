@@ -101,7 +101,7 @@
 
     packages = forAllSystems (system: pkgs: _:
       let
-      cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+      cargoToml = fromTOML (builtins.readFile ./Cargo.toml);
       cargoLock = ./Cargo.lock;
       craneLib = crane.mkLib pkgs;
       src = lib.fileset.toSource {
