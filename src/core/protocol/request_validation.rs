@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::OnceLock};
 
 use indoc::indoc;
 use nix::{libc::gid_t, unistd::Group};
@@ -193,10 +193,21 @@ impl GroupNamePattern {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct GroupDenylist {
     gids: HashSet<gid_t>,
     name_patterns: Vec<GroupNamePattern>,
+    compiled_name_patterns: OnceLock<Vec<Regex>>,
+}
+
+impl Clone for GroupDenylist {
+    fn clone(&self) -> Self {
+        Self {
+            gids: self.gids.clone(),
+            name_patterns: self.name_patterns.clone(),
+            compiled_name_patterns: OnceLock::new(),
+        }
+    }
 }
 
 impl GroupDenylist {
@@ -210,6 +221,7 @@ impl GroupDenylist {
 
     pub fn insert_name_pattern(&mut self, pattern: GroupNamePattern) {
         self.name_patterns.push(pattern);
+        self.compiled_name_patterns = OnceLock::new();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -220,12 +232,21 @@ impl GroupDenylist {
         self.gids.len() + self.name_patterns.len()
     }
 
+    fn compiled_name_pattern_regexes(&self) -> &[Regex] {
+        self.compiled_name_patterns.get_or_init(|| {
+            self.name_patterns
+                .iter()
+                .filter_map(|pattern| pattern.to_regex().ok())
+                .collect()
+        })
+    }
+
     pub fn matches(&self, group: &Group) -> bool {
         self.gids.contains(&group.gid.as_raw())
             || self
-                .name_patterns
+                .compiled_name_pattern_regexes()
                 .iter()
-                .any(|p| p.to_regex().is_ok_and(|regex| regex.is_match(&group.name)))
+                .any(|regex| regex.is_match(&group.name))
     }
 }
 
