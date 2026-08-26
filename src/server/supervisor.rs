@@ -632,10 +632,31 @@ async fn listener_task(
                 match message {
                     SupervisorMessage::StopAcceptingNewConnections => {
                         tracing::info!("Listener task received stop accepting new connections message, stopping listener");
-                        while let Ok(msg) = supervisor_message_receiver.try_recv() {
-                            if let SupervisorMessage::ResumeAcceptingNewConnections = msg {
-                                tracing::info!("Listener task received resume accepting new connections message, resuming listener");
-                                break;
+                        loop {
+                            match supervisor_message_receiver.recv().await {
+                                Ok(SupervisorMessage::ResumeAcceptingNewConnections) => {
+                                    tracing::info!("Listener task received resume accepting new connections message, resuming listener");
+                                    break;
+                                }
+                                Ok(SupervisorMessage::Shutdown) => {
+                                    tracing::info!("Listener task received shutdown message while paused, exiting listener task");
+                                    return Ok(());
+                                }
+                                Ok(SupervisorMessage::StopAcceptingNewConnections) => {
+                                    // Already stopped, nothing to do.
+                                }
+                                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                                    tracing::warn!(
+                                        "Supervisor message receiver lagged behind, skipped {} message(s)",
+                                        skipped
+                                    );
+                                }
+                                Err(broadcast::error::RecvError::Closed) => {
+                                    tracing::error!(
+                                        "Supervisor message channel unexpectedly closed while paused, exiting listener task"
+                                    );
+                                    return Ok(());
+                                }
                             }
                         }
                     }
