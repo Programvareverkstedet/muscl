@@ -300,9 +300,13 @@ pub struct PrivilegeLineError {
     pub message: String,
 }
 
+/// Parse the content of the privilege editor into a list of privilege rows.
+///
+/// Lines containing errors will not be added to the list, but rather will be
+/// collected as [`PrivilegeLineError`]s in the second element of the tuple.
 pub fn parse_privilege_data_from_editor_content(
     content: &str,
-) -> Result<Vec<DatabasePrivilegeRow>, Vec<PrivilegeLineError>> {
+) -> (Vec<DatabasePrivilegeRow>, Vec<PrivilegeLineError>) {
     let mut rows = Vec::new();
     let mut errors = Vec::new();
 
@@ -333,11 +337,7 @@ pub fn parse_privilege_data_from_editor_content(
         }
     }
 
-    if errors.is_empty() {
-        Ok(rows)
-    } else {
-        Err(errors)
-    }
+    (rows, errors)
 }
 
 pub fn format_privilege_row_header_for(line: &str) -> String {
@@ -508,8 +508,9 @@ mod tests {
 
         let content = generate_editor_content_from_privilege_data(&permissions, "user", None);
 
-        let parsed_permissions = parse_privilege_data_from_editor_content(&content).unwrap();
+        let (parsed_permissions, errors) = parse_privilege_data_from_editor_content(&content);
 
+        assert!(errors.is_empty(), "{errors:?}");
         assert_eq!(permissions, parsed_permissions);
     }
 
@@ -528,8 +529,9 @@ mod tests {
             db5 user5 Y Y Y Y Y Y Y Y Y Y Y Y Y too many fields
         "};
 
-        let errors = parse_privilege_data_from_editor_content(content).unwrap_err();
+        let (rows, errors) = parse_privilege_data_from_editor_content(content);
 
+        assert_eq!(rows.len(), 2);
         assert_eq!(errors.len(), 3);
 
         assert_eq!(errors[0].line_number, 5);

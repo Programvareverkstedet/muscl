@@ -368,10 +368,11 @@ fn edit_privileges_with_editor(
 
         let cleaned_content = strip_inlined_errors(&edited_content);
 
-        let errors = match parse_privilege_data_from_editor_content(&cleaned_content) {
-            Ok(rows) => return Ok(rows),
-            Err(errors) => errors,
-        };
+        let (rows, errors) = parse_privilege_data_from_editor_content(&cleaned_content);
+
+        if errors.is_empty() {
+            return Ok(rows);
+        }
 
         println!("The following errors were found in your edits:\n");
         for (i, error) in errors.iter().enumerate() {
@@ -403,8 +404,18 @@ fn edit_privileges_with_editor(
             .interact()?;
 
         if !retry {
-            println!("Aborting edit, no changes will be made.");
-            return Ok(privilege_data.to_vec());
+            let valid_rows = errors.iter().filter_map(|error| {
+                let line = cleaned_content.lines().nth(error.line_number)?;
+                let mut fields = line.split_ascii_whitespace();
+                let db: MySQLDatabase = fields.next()?.into();
+                let user: MySQLUser = fields.next()?.into();
+                privilege_data
+                    .iter()
+                    .find(|row| row.db == db && row.user == user)
+                    .cloned()
+            });
+
+            return Ok(rows.into_iter().chain(valid_rows).collect());
         }
 
         editor_content = inline_errors_into_editor_content(&cleaned_content, &errors);
