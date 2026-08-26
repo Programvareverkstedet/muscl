@@ -12,6 +12,15 @@ WatchdogSec=3min
 Restart=always
 RestartSec=10s
 
+# Liberal upper bound on memory usage, anything above this is likely a memory leak.
+# If you have unusually large deployments, you may want to increase this value.
+MemoryMax=500M
+
+# Liberal upper bound of number of threads. If you have an unusally large number of
+# CPU cores, you may want to increase this value.
+TasksMax=256
+LimitNOFILE=128
+
 # Although this is a multi-instance unit, the constant `User` field is needed
 # for authentication via mysql's auth_socket plugin to work.
 User=muscl
