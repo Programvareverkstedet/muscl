@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -14,11 +14,11 @@ use sqlx::MySqlPool;
 use tokio::{
     net::UnixListener as TokioUnixListener,
     select,
-    sync::{Mutex, RwLock, broadcast},
-    task::JoinHandle,
+    sync::{Mutex, Notify, RwLock, broadcast},
+    task::{JoinHandle, JoinSet},
     time::interval,
 };
-use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     core::protocol::request_validation::GroupDenylist,
@@ -55,7 +55,8 @@ pub struct Supervisor {
     db_is_mariadb: Arc<RwLock<bool>>,
     listener: Arc<RwLock<TokioUnixListener>>,
     listener_task: JoinHandle<anyhow::Result<()>>,
-    handler_task_tracker: TaskTracker,
+    active_connection_count: Arc<AtomicUsize>,
+    connections_drained_notify: Arc<Notify>,
     supervisor_message_sender: broadcast::Sender<SupervisorMessage>,
 
     watchdog_timeout: Option<Duration>,
@@ -126,11 +127,12 @@ impl Supervisor {
             Arc::new(RwLock::new(result))
         };
 
-        let task_tracker = TaskTracker::new();
+        let active_connection_count = Arc::new(AtomicUsize::new(0));
+        let connections_drained_notify = Arc::new(Notify::new());
 
         #[cfg(target_os = "linux")]
         let status_notifier_task = if systemd_mode {
-            Some(spawn_status_notifier_task(task_tracker.clone()))
+            Some(spawn_status_notifier_task(active_connection_count.clone()))
         } else {
             None
         };
@@ -163,11 +165,13 @@ impl Supervisor {
             spawn_signal_handler_task(reload_tx.clone(), shutdown_cancel_token.clone());
 
         let listener_clone = listener.clone();
-        let task_tracker_clone = task_tracker.clone();
+        let active_connection_count_clone = active_connection_count.clone();
+        let connections_drained_notify_clone = connections_drained_notify.clone();
         let listener_task = {
             tokio::spawn(listener_task(
                 listener_clone,
-                task_tracker_clone,
+                active_connection_count_clone,
+                connections_drained_notify_clone,
                 db_connection_pool.clone(),
                 rx,
                 db_is_mariadb.clone(),
@@ -188,7 +192,8 @@ impl Supervisor {
             db_is_mariadb,
             listener,
             listener_task,
-            handler_task_tracker: task_tracker,
+            active_connection_count,
+            connections_drained_notify,
             supervisor_message_sender: tx,
             watchdog_timeout: watchdog_duration,
             systemd_watchdog_task: watchdog_task,
@@ -197,7 +202,6 @@ impl Supervisor {
     }
 
     fn stop_receiving_new_connections(&self) -> anyhow::Result<()> {
-        self.handler_task_tracker.close();
         self.supervisor_message_sender
             .send(SupervisorMessage::StopAcceptingNewConnections)
             .context("Failed to send stop accepting new connections message to listener task")?;
@@ -205,7 +209,6 @@ impl Supervisor {
     }
 
     fn resume_receiving_new_connections(&self) -> anyhow::Result<()> {
-        self.handler_task_tracker.reopen();
         self.supervisor_message_sender
             .send(SupervisorMessage::ResumeAcceptingNewConnections)
             .context("Failed to send resume accepting new connections message to listener task")?;
@@ -213,7 +216,13 @@ impl Supervisor {
     }
 
     async fn wait_for_existing_connections_to_finish(&self) -> anyhow::Result<()> {
-        self.handler_task_tracker.wait().await;
+        loop {
+            let notified = self.connections_drained_notify.notified();
+            if self.active_connection_count.load(Ordering::Acquire) == 0 {
+                break;
+            }
+            notified.await;
+        }
         Ok(())
     }
 
@@ -384,7 +393,7 @@ impl Supervisor {
         tracing::debug!("Stop accepting new connections");
         self.stop_receiving_new_connections()?;
 
-        let connection_count = self.handler_task_tracker.len();
+        let connection_count = self.active_connection_count.load(Ordering::Relaxed);
         tracing::debug!(
             "Waiting for {} existing connections to finish",
             connection_count
@@ -480,14 +489,14 @@ fn spawn_watchdog_task(duration: Duration) -> JoinHandle<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn spawn_status_notifier_task(task_tracker: TaskTracker) -> JoinHandle<()> {
+fn spawn_status_notifier_task(active_connection_count: Arc<AtomicUsize>) -> JoinHandle<()> {
     const STATUS_UPDATE_INTERVAL_SECS: Duration = Duration::from_secs(1);
 
     tokio::spawn(async move {
         let mut interval = interval(STATUS_UPDATE_INTERVAL_SECS);
         loop {
             interval.tick().await;
-            let count = task_tracker.len();
+            let count = active_connection_count.load(Ordering::Relaxed);
 
             let message = if count > 0 {
                 format!("Handling {count} connections")
@@ -613,7 +622,8 @@ fn spawn_signal_handler_task(
 
 async fn listener_task(
     listener: Arc<RwLock<TokioUnixListener>>,
-    task_tracker: TaskTracker,
+    active_connection_count: Arc<AtomicUsize>,
+    connections_drained_notify: Arc<Notify>,
     db_pool: Arc<RwLock<MySqlPool>>,
     mut supervisor_message_receiver: broadcast::Receiver<SupervisorMessage>,
     db_is_mariadb: Arc<RwLock<bool>>,
@@ -623,6 +633,7 @@ async fn listener_task(
     sd_notify::notify(&[sd_notify::NotifyState::Ready])?;
 
     let connection_counter = AtomicU64::new(0);
+    let mut task_tracker: JoinSet<()> = JoinSet::new();
 
     loop {
         tokio::select! {
@@ -683,6 +694,7 @@ async fn listener_task(
                         let db_pool_clone = db_pool.clone();
                         let db_is_mariadb_clone = *db_is_mariadb.read().await;
                         let group_denylist_arc_clone = group_denylist.clone();
+                        active_connection_count.fetch_add(1, Ordering::AcqRel);
                         task_tracker.spawn(async move {
                             match session_handler(
                                 conn,
@@ -697,6 +709,15 @@ async fn listener_task(
                         });
                     },
                     Err(e) => tracing::error!("Failed to accept new connection: {}", e),
+                }
+            }
+
+            Some(result) = task_tracker.join_next(), if !task_tracker.is_empty() => {
+                if let Err(e) = result {
+                    tracing::error!("A connection handler task panicked: {}", e);
+                }
+                if active_connection_count.fetch_sub(1, Ordering::AcqRel) == 1 {
+                    connections_drained_notify.notify_waiters();
                 }
             }
         }
