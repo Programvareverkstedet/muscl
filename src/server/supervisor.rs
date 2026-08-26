@@ -470,7 +470,9 @@ fn spawn_status_notifier_task(task_tracker: TaskTracker) -> JoinHandle<()> {
 async fn create_unix_listener_with_socket_path(
     socket_path: PathBuf,
 ) -> anyhow::Result<TokioUnixListener> {
-    let parent_directory = socket_path.parent().unwrap();
+    let parent_directory = socket_path
+        .parent()
+        .with_context(|| format!("Socket path {socket_path:?} has no parent directory"))?;
     if !parent_directory.exists() {
         tracing::debug!("Creating directory {:?}", parent_directory);
         fs::create_dir_all(parent_directory)?;
