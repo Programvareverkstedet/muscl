@@ -52,7 +52,7 @@ pub fn read_and_parse_group_denylist(denylist_path: &Path) -> anyhow::Result<Gro
     Ok(groups)
 }
 
-fn parse_group_denylist(denylist_path: &Path, lines: Lines) -> GroupDenylist {
+pub(crate) fn parse_group_denylist(denylist_path: &Path, lines: Lines) -> GroupDenylist {
     let mut groups = GroupDenylist::new();
 
     for (line_number, line) in lines.enumerate() {

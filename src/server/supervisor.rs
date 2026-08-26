@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
+use sha2::{Digest, Sha256};
 use sqlx::MySqlPool;
 use tokio::{
     net::UnixListener as TokioUnixListener,
@@ -23,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     core::protocol::request_validation::GroupDenylist,
     server::{
-        authorization::read_and_parse_group_denylist,
+        authorization::{parse_group_denylist, read_and_parse_group_denylist},
         config::{MysqlConfig, ServerConfig},
         session_handler::{SessionId, session_handler},
     },
@@ -44,6 +45,7 @@ pub struct Supervisor {
     config_path: PathBuf,
     config: Arc<Mutex<ServerConfig>>,
     group_deny_list: Arc<RwLock<GroupDenylist>>,
+    group_denylist_file_hash: Mutex<Option<[u8; 32]>>,
     systemd_mode: bool,
 
     shutdown_cancel_token: CancellationToken,
@@ -183,6 +185,7 @@ impl Supervisor {
             config_path,
             config: Arc::new(Mutex::new(config)),
             group_deny_list,
+            group_denylist_file_hash: Mutex::new(None),
             systemd_mode,
             reload_message_sender: reload_tx,
             reload_message_receiver: reload_rx,
@@ -232,19 +235,36 @@ impl Supervisor {
         let mut config = self.config.clone().lock_owned().await;
         *config = new_config;
 
+        let mut last_hash = self.group_denylist_file_hash.lock().await;
+
         let group_deny_list = if let Some(denylist_path) = &config.authorization.group_denylist_file
         {
-            let denylist = read_and_parse_group_denylist(denylist_path)
-                .context("Failed to read group denylist file")?;
+            let content = fs::read_to_string(denylist_path).with_context(|| {
+                format!("Failed to read group denylist file at {denylist_path:?}")
+            })?;
+
+            let new_hash: [u8; 32] = Sha256::digest(content.as_bytes()).into();
+
+            if *last_hash == Some(new_hash) {
+                tracing::debug!(
+                    "Group denylist file at {:?} is unchanged, skipping reload",
+                    denylist_path
+                );
+                return Ok(());
+            }
+
+            let denylist = parse_group_denylist(denylist_path, content.lines());
 
             tracing::debug!(
                 "Loaded group denylist with {} entries from {:?}",
                 denylist.len(),
                 denylist_path
             );
+            *last_hash = Some(new_hash);
             denylist
         } else {
             tracing::debug!("No group denylist file specified, proceeding without a denylist");
+            *last_hash = None;
             GroupDenylist::new()
         };
         let mut group_deny_list_lock = self.group_deny_list.write().await;
