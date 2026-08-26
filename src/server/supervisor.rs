@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -56,7 +56,7 @@ pub struct Supervisor {
     signal_handler_task: JoinHandle<()>,
 
     db_connection_pool: Arc<RwLock<MySqlPool>>,
-    db_is_mariadb: Arc<RwLock<bool>>,
+    db_is_mariadb: Arc<AtomicBool>,
     listener: Arc<RwLock<TokioUnixListener>>,
     listener_task: JoinHandle<anyhow::Result<()>>,
     session_semaphore: Arc<Semaphore>,
@@ -128,7 +128,7 @@ impl Supervisor {
                 if result { "MariaDB" } else { "MySQL" }
             );
 
-            Arc::new(RwLock::new(result))
+            Arc::new(AtomicBool::new(result))
         };
 
         let session_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_SESSIONS));
@@ -277,7 +277,6 @@ impl Supervisor {
     async fn restart_db_connection_pool(&self) -> anyhow::Result<()> {
         let config = self.config.lock().await;
         let mut connection_pool = self.db_connection_pool.clone().write_owned().await;
-        let mut db_is_mariadb_lock = self.db_is_mariadb.write().await;
 
         let new_db_pool = create_db_connection_pool(&config.mysql).await?;
         let db_is_mariadb = {
@@ -296,10 +295,9 @@ impl Supervisor {
         };
 
         let old_db_pool = std::mem::replace(&mut *connection_pool, new_db_pool);
-        *db_is_mariadb_lock = db_is_mariadb;
+        self.db_is_mariadb.store(db_is_mariadb, Ordering::Release);
 
         drop(connection_pool);
-        drop(db_is_mariadb_lock);
         drop(config);
 
         tracing::debug!("Closing previous database connection pool");
@@ -664,7 +662,7 @@ async fn listener_task(
     total_requests_handled: Arc<AtomicU64>,
     db_pool: Arc<RwLock<MySqlPool>>,
     mut supervisor_message_receiver: broadcast::Receiver<SupervisorMessage>,
-    db_is_mariadb: Arc<RwLock<bool>>,
+    db_is_mariadb: Arc<AtomicBool>,
     group_denylist: Arc<RwLock<GroupDenylist>>,
 ) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
@@ -730,7 +728,7 @@ async fn listener_task(
 
                         let session_id = SessionId::new(conn_id);
                         let db_pool_clone = db_pool.clone();
-                        let db_is_mariadb_clone = *db_is_mariadb.read().await;
+                        let db_is_mariadb_clone = db_is_mariadb.load(Ordering::Acquire);
                         let group_denylist_arc_clone = group_denylist.clone();
                         let session_semaphore_clone = session_semaphore.clone();
                         let total_requests_handled_clone = total_requests_handled.clone();
