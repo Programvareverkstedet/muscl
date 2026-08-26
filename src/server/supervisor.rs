@@ -456,12 +456,24 @@ impl Supervisor {
                     match reload_result {
                         Ok(ReloadEvent) => {
                             tracing::info!("Reloading configuration");
-                            match self.reload().await {
-                                Ok(()) => {
-                                    tracing::info!("Configuration reloaded successfully");
+                            select! {
+                                biased;
+
+                                () = self.shutdown_cancel_token.cancelled() => {
+                                    tracing::debug!(
+                                        "Received shutdown signal while reloading, aborting reload"
+                                    );
                                 }
-                                Err(e) => {
-                                    tracing::error!("Failed to reload configuration: {}", e);
+
+                                result = self.reload() => {
+                                    match result {
+                                        Ok(()) => {
+                                            tracing::info!("Configuration reloaded successfully");
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("Failed to reload configuration: {}", e);
+                                        }
+                                    }
                                 }
                             }
                         }
