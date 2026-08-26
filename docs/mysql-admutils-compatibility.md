@@ -30,6 +30,9 @@ The known ones are:
   `mysql-dbadm create user_db1 user_db2 user_db1`, the program will only try to create
   the `user_db1` once. The old program would have attempted to create it twice,
   failing the second attempt.
+- Editing privileges for a database user pair requires the calling user to *own* both
+  the database and the user. The original program only required ownership of the database.
+  See [#228](https://git.pvv.ntnu.no/Projects/muscl/issues/228) for more information.
 
 One detail that might be considered a difference but, is that the compatibility mode supports
 command line completions when the user presses tab. This is not a feature of the original programs,
