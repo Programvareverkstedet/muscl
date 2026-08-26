@@ -305,7 +305,7 @@ impl Supervisor {
         let previous_config = self.config.lock().await.clone();
         self.reload_config().await?;
 
-        let mut listener_task_was_stopped = false;
+        let mut errors = Vec::new();
 
         // NOTE: despite closing the existing db pool, any already acquired connections will remain valid until dropped,
         //       so we don't need to close existing connections here.
@@ -313,33 +313,59 @@ impl Supervisor {
             tracing::debug!("MySQL configuration has changed");
 
             tracing::debug!("Restarting database connection pool with new configuration");
-            self.restart_db_connection_pool().await?;
+            if let Err(e) = self.restart_db_connection_pool().await {
+                tracing::error!("Failed to restart database connection pool: {:#}", e);
+                errors.push(e.context("Failed to restart database connection pool"));
+            }
+        } else {
+            tracing::debug!(
+                "MySQL configuration has not changed, skipping database connection pool restart"
+            );
         }
 
         if self.config.lock().await.socket_path != previous_config.socket_path {
             tracing::debug!("Socket path configuration has changed, reloading listener");
-            if !listener_task_was_stopped {
-                listener_task_was_stopped = true;
+
+            (|| async {
                 tracing::debug!("Stop accepting new connections");
                 self.stop_receiving_new_connections()?;
 
                 tracing::debug!("Waiting for existing connections to finish");
                 self.wait_for_existing_connections_to_finish().await?;
-            }
 
-            tracing::debug!("Reloading listener with new socket path");
-            self.reload_listener().await?;
-        }
+                tracing::debug!("Reloading listener with new socket path");
+                self.reload_listener().await?;
 
-        if listener_task_was_stopped {
-            tracing::debug!("Resuming listener task");
-            self.resume_receiving_new_connections()?;
+                tracing::debug!("Resuming listener task");
+                self.resume_receiving_new_connections()?;
+
+                Ok::<(), anyhow::Error>(())
+            })()
+            .await
+            .unwrap_or_else(|e| {
+                tracing::error!("Failed to reload listener with new socket path: {:#}", e);
+                errors.push(e.context("Failed to reload listener with new socket path"));
+            });
+        } else {
+            tracing::debug!("Socket path configuration has not changed, skipping listener reload");
         }
 
         #[cfg(target_os = "linux")]
         sd_notify::notify(&[sd_notify::NotifyState::Ready])?;
 
-        Ok(())
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "Reload completed with {} error(s):\n{}",
+                errors.len(),
+                errors
+                    .iter()
+                    .map(|e| format!("- {e:#}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ))
+        }
     }
 
     pub async fn shutdown(&self) -> anyhow::Result<()> {
