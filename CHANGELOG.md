@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.1.0
+
+Medium sized release with a new features
+
+### Notable changes
+
+- Group denylists now supports `?` and `*` wildcards for group names.
+- Add a `--clear` flag to `passswd-user`, allowing you to remove a user's password.
+- Have `show-db` and `show-user` limit the variable sized cells to 5 items before truncating the output.
+  You can use `--all` or `--json` to show all items.
+- You can now set log level via `RUST_LOG` for both the server and the client.
+- Various user experience improvements to the interactive `edit-privs` editor:
+   - The editor now lets you retry your pending edit if it discovers any errors.
+   - On retry, it will fill inline the error messages as comments in the editor.
+   - It detects any ownership and existence issues before asking you to commit changes.
+   - It allows you to still commit any non-erroneous changes if you choose to ignore the existing errors.
+   - Lines which are duplicates in terms of db/user pair are now either ignored if equal or reported as an error.
+
+### Bug fixes
+
+- Fix an issue with the documentation, listing out the wrong configuration file path in various places.
+- Fix an issue where listing databases was taking unreasonably long time due to a badly optimized query.
+- Fix an issue with the nixos module where the `RELOAD` privilege was not granted to the provisioned muscl admin user.
+
+### Other
+
+- Changed the wire format from a deprecated binary serialization to JSON, backed by a more stable dependency.
+- Add some more buildtime metadata to the `--version` output.
+- Build with the stable Rust toolchain by default.
+- Reduce the transitive dependency count a bit by shaving off ununsed compiletime features from the direct dependencies.
+- Bump dependencies
+
 ## v1.0.2
 
 Patch release with an important bug fix
