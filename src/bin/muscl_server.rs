@@ -117,8 +117,12 @@ async fn handle_command(args: ServerArgs) -> anyhow::Result<()> {
     if systemd_mode {
         #[cfg(target_os = "linux")]
         {
+            let env_filter = tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(args.verbosity.tracing_level_filter().into())
+                .from_env_lossy();
+
             let subscriber = tracing_subscriber::Registry::default()
-                .with(args.verbosity.tracing_level_filter())
+                .with(env_filter)
                 .with(tracing_journald::layer()?);
 
             tracing::subscriber::set_global_default(subscriber)
@@ -137,8 +141,12 @@ async fn handle_command(args: ServerArgs) -> anyhow::Result<()> {
             }
         }
     } else {
+        let env_filter = tracing_subscriber::EnvFilter::builder()
+            .with_default_directive(args.verbosity.tracing_level_filter().into())
+            .from_env_lossy();
+
         let subscriber = tracing_subscriber::Registry::default()
-            .with(args.verbosity.tracing_level_filter())
+            .with(env_filter)
             .with(
                 tracing_subscriber::fmt::layer()
                     .with_line_number(cfg!(debug_assertions))

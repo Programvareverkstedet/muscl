@@ -96,18 +96,7 @@ pub fn bootstrap_server_connection_and_drop_privileges(
             "The executable should not be SUID or SGID when connecting to an external server"
         );
 
-        let subscriber = tracing_subscriber::Registry::default()
-            .with(verbose.tracing_level_filter())
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .with_line_number(cfg!(debug_assertions))
-                    .with_target(cfg!(debug_assertions))
-                    .with_thread_ids(false)
-                    .with_thread_names(false),
-            );
-
-        tracing::subscriber::set_global_default(subscriber)
-            .context("Failed to set global default tracing subscriber")?;
+        init_stderr_tracing_subscriber(verbose)?;
 
         connect_to_external_server(server_socket_path)
     } else if cfg!(feature = "suid-sgid-mode") {
@@ -115,23 +104,31 @@ pub fn bootstrap_server_connection_and_drop_privileges(
         //       as we might be running with elevated privileges.
         let server_connection = bootstrap_internal_server_and_drop_privs(config)?;
 
-        let subscriber = tracing_subscriber::Registry::default()
-            .with(verbose.tracing_level_filter())
-            .with(
-                tracing_subscriber::fmt::layer()
-                    .with_line_number(cfg!(debug_assertions))
-                    .with_target(cfg!(debug_assertions))
-                    .with_thread_ids(false)
-                    .with_thread_names(false),
-            );
-
-        tracing::subscriber::set_global_default(subscriber)
-            .context("Failed to set global default tracing subscriber")?;
+        init_stderr_tracing_subscriber(verbose)?;
 
         Ok(server_connection)
     } else {
         anyhow::bail!("SUID/SGID support is not enabled, cannot start internal server");
     }
+}
+
+fn init_stderr_tracing_subscriber(verbose: Verbosity<InfoLevel>) -> anyhow::Result<()> {
+    let env_filter = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(verbose.tracing_level_filter().into())
+        .from_env_lossy();
+
+    let subscriber = tracing_subscriber::Registry::default()
+        .with(env_filter)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_line_number(cfg!(debug_assertions))
+                .with_target(cfg!(debug_assertions))
+                .with_thread_ids(false)
+                .with_thread_names(false),
+        );
+
+    tracing::subscriber::set_global_default(subscriber)
+        .context("Failed to set global default tracing subscriber")
 }
 
 fn socket_path_is_ok(path: &Path) -> anyhow::Result<()> {
