@@ -76,6 +76,18 @@ pub fn landlock_restrict_server(config_path: Option<&Path>) -> anyhow::Result<()
             ))?;
     }
 
+    if let Some(group_denylist_file) = &config.authorization.group_denylist_file {
+        ruleset = ruleset
+            .add_rules(path_beneath_rules(
+                &[group_denylist_file],
+                AccessFs::from_read(abi),
+            ))
+            .context(format!(
+                "Failed to add Landlock rules for group denylist file at {}",
+                group_denylist_file.display()
+            ))?;
+    }
+
     ruleset
         .restrict_self()
         .context("Failed to apply Landlock restrictions to the server process")?;
