@@ -586,6 +586,9 @@ fn spawn_signal_handler_task(
         let mut sigterm_stream =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                 .expect("Failed to set up SIGTERM handler");
+        let mut sigint_stream =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+                .expect("Failed to set up SIGINT handler");
 
         loop {
             tokio::select! {
@@ -595,6 +598,11 @@ fn spawn_signal_handler_task(
                 }
                 _ = sigterm_stream.recv() => {
                     tracing::info!("Received SIGTERM signal");
+                    shutdown_token.cancel();
+                    break;
+                }
+                _ = sigint_stream.recv() => {
+                    tracing::info!("Received SIGINT signal");
                     shutdown_token.cancel();
                     break;
                 }
