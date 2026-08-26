@@ -386,18 +386,20 @@ async fn detect_ownership_and_existence_errors(
 
         rows.retain(|row| row.db != *db || row.user != *user);
 
-        if let Some(&line_number) = line_numbers_by_target.get(&(db.clone(), user.clone())) {
-            if let Some(err) = db_err {
-                errors.push(PrivilegeLineError {
-                    line_number,
-                    message: err.to_error_message(db),
-                });
-            }
-            if let Some(err) = user_err {
-                errors.push(PrivilegeLineError {
-                    line_number,
-                    message: err.to_error_message(user),
-                });
+        if let Some(line_numbers) = line_numbers_by_target.get(&(db.clone(), user.clone())) {
+            for &line_number in line_numbers {
+                if let Some(err) = db_err {
+                    errors.push(PrivilegeLineError {
+                        line_number,
+                        message: err.to_error_message(db),
+                    });
+                }
+                if let Some(err) = user_err {
+                    errors.push(PrivilegeLineError {
+                        line_number,
+                        message: err.to_error_message(user),
+                    });
+                }
             }
         }
     }

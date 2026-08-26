@@ -10,7 +10,10 @@ use crate::core::{
 };
 use anyhow::{Context, anyhow};
 use itertools::Itertools;
-use std::{cmp::max, collections::HashMap};
+use std::{
+    cmp::max,
+    collections::{HashMap, HashSet},
+};
 
 /// Generates a single row of the privileges table for the editor.
 #[must_use]
@@ -307,12 +310,12 @@ pub struct PrivilegeLineError {
 pub fn parse_privilege_data_from_editor_content(
     content: &str,
 ) -> (Vec<DatabasePrivilegeRow>, Vec<PrivilegeLineError>) {
-    let mut rows = Vec::new();
+    let mut rows: Vec<(usize, DatabasePrivilegeRow)> = Vec::new();
     let mut errors = Vec::new();
 
     for (line_number, line) in content.lines().map(str::trim).enumerate() {
         match parse_privilege_row_from_editor(line) {
-            PrivilegeRowParseResult::PrivilegeRow(row) => rows.push(row),
+            PrivilegeRowParseResult::PrivilegeRow(row) => rows.push((line_number, row)),
             PrivilegeRowParseResult::ParserError(e) => errors.push(PrivilegeLineError {
                 line_number,
                 message: format!("{e:#}"),
@@ -337,11 +340,83 @@ pub fn parse_privilege_data_from_editor_content(
         }
     }
 
+    let (duplicate_errors, duplicate_line_numbers) = find_duplicate_privilege_lines(&rows);
+    errors.extend(duplicate_errors);
+    errors.sort_by_key(|error| error.line_number);
+
+    let rows = rows
+        .into_iter()
+        .filter(|(line_number, _)| !duplicate_line_numbers.contains(line_number))
+        .map(|(_, row)| row)
+        .collect();
+
     (rows, errors)
 }
 
-/// Map each (database, user) pair declared in `content` to the line number that declares it.
-pub fn map_privilege_lines_by_target(content: &str) -> HashMap<(MySQLDatabase, MySQLUser), usize> {
+/// Detect duplicate (database, user) pairs among `rows`.
+///
+/// Returns a tuple containing error messages for the relevant lines, as well
+/// as a set of line numbers to drop from the final result.
+type PrivilegeRowOccurrences<'a> = Vec<(usize, &'a DatabasePrivilegeRow)>;
+
+fn find_duplicate_privilege_lines(
+    rows: &[(usize, DatabasePrivilegeRow)],
+) -> (Vec<PrivilegeLineError>, HashSet<usize>) {
+    let occurrences: HashMap<(&MySQLDatabase, &MySQLUser), PrivilegeRowOccurrences> = rows
+        .iter()
+        .fold(HashMap::new(), |mut map, (line_number, row)| {
+            map.entry((&row.db, &row.user))
+                .or_default()
+                .push((*line_number, row));
+            map
+        });
+
+    let duplicates: Vec<(usize, Option<PrivilegeLineError>)> = occurrences
+        .into_values()
+        .filter(|occurrences| occurrences.len() > 1)
+        .flat_map(|occurrences| {
+            let (_, first_row) = occurrences[0];
+            let all_equal = occurrences.iter().all(|(_, row)| *row == first_row);
+
+            let dropped: PrivilegeRowOccurrences = if all_equal {
+                occurrences.into_iter().skip(1).collect()
+            } else {
+                occurrences
+            };
+
+            dropped
+                .into_iter()
+                .enumerate()
+                .map(move |(i, (line_number, _))| (
+                    line_number,
+                    if all_equal || i == 0 {
+                        None
+                    } else {
+                        Some(PrivilegeLineError {
+                            line_number,
+                            message: "Duplicate entry for this database/user pair conflicts with an earlier entry.".to_string(),
+                        })
+                    }
+                ))
+        })
+        .collect();
+
+    let duplicate_line_numbers = duplicates
+        .iter()
+        .map(|(line_number, _)| *line_number)
+        .collect();
+    let errors = duplicates
+        .into_iter()
+        .filter_map(|(_, error)| error)
+        .collect();
+
+    (errors, duplicate_line_numbers)
+}
+
+/// Map each (database, user) pair declared in `content` to the line numbers that declare it.
+pub fn map_privilege_lines_by_target(
+    content: &str,
+) -> HashMap<(MySQLDatabase, MySQLUser), Vec<usize>> {
     content
         .lines()
         .enumerate()
@@ -349,9 +424,12 @@ pub fn map_privilege_lines_by_target(content: &str) -> HashMap<(MySQLDatabase, M
             let mut fields = line.split_ascii_whitespace();
             let db: MySQLDatabase = fields.next()?.into();
             let user: MySQLUser = fields.next()?.into();
-            Some(((db, user), line_number))
+            Some((line_number, (db, user)))
         })
-        .collect()
+        .fold(HashMap::new(), |mut map, (line_number, target)| {
+            map.entry(target).or_default().push(line_number);
+            map
+        })
 }
 
 /// Print each error alongside the line it applies to.
@@ -509,7 +587,7 @@ mod tests {
     fn ensure_generated_and_parsed_editor_content_is_equal() {
         let permissions = vec![
             DatabasePrivilegeRow {
-                db: "db".into(),
+                db: "db1".into(),
                 user: "user".into(),
                 select_priv: true,
                 insert_priv: true,
@@ -527,7 +605,7 @@ mod tests {
                 trigger_priv: true,
             },
             DatabasePrivilegeRow {
-                db: "db".into(),
+                db: "db2".into(),
                 user: "user".into(),
                 select_priv: false,
                 insert_priv: false,
@@ -667,12 +745,69 @@ mod tests {
         let content = indoc! {"
             db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
             db2 user2 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+            db2 user2 N N N N N N N N N N N N N N
         "};
         let content = content.trim_end();
 
         let lines = map_privilege_lines_by_target(content);
 
-        assert_eq!(lines.get(&("db2".into(), "user2".into())), Some(&1));
+        assert_eq!(lines.get(&("db1".into(), "user1".into())), Some(&vec![0]));
+        assert_eq!(
+            lines.get(&("db2".into(), "user2".into())),
+            Some(&vec![1, 2])
+        );
         assert_eq!(lines.get(&("db3".into(), "user3".into())), None);
+    }
+
+    #[test]
+    fn test_parse_privilege_data_from_editor_content_ignores_identical_duplicates() {
+        let content = indoc! {"
+            db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+            db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+        "};
+
+        let (rows, errors) = parse_privilege_data_from_editor_content(content);
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_privilege_data_from_editor_content_flags_conflicting_duplicates() {
+        let content = indoc! {"
+            db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+            db1 user1 N N N N N N N N N N N N N N
+        "};
+
+        let (rows, errors) = parse_privilege_data_from_editor_content(content);
+
+        assert!(
+            rows.is_empty(),
+            "neither occurrence should be applied while the conflict is unresolved: {rows:?}"
+        );
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].line_number, 1);
+        assert!(errors[0].message.contains("Duplicate entry"));
+    }
+
+    #[test]
+    fn test_parse_privilege_data_from_editor_content_flags_all_but_first_when_any_conflict() {
+        let content = indoc! {"
+            db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+            db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+            db1 user1 N N N N N N N N N N N N N N
+        "};
+
+        let (rows, errors) = parse_privilege_data_from_editor_content(content);
+
+        assert!(
+            rows.is_empty(),
+            "none of the conflicting occurrences should be applied: {rows:?}"
+        );
+
+        assert_eq!(errors.len(), 2);
+        assert_eq!(errors[0].line_number, 1);
+        assert_eq!(errors[1].line_number, 2);
     }
 }
