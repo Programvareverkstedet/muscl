@@ -19,8 +19,9 @@ use crate::{
         database_privileges::{
             DatabasePrivilegeEdit, DatabasePrivilegeEditEntry, DatabasePrivilegeRow,
             DatabasePrivilegeRowDiff, DatabasePrivilegesDiff, create_or_modify_privilege_rows,
-            diff_privileges, display_privilege_diffs, generate_editor_content_from_privilege_data,
-            parse_privilege_data_from_editor_content, reduce_privilege_diffs,
+            diff_privileges, display_privilege_diffs, format_privilege_row_header_for,
+            generate_editor_content_from_privilege_data, inline_errors_into_editor_content,
+            parse_privilege_data_from_editor_content, reduce_privilege_diffs, strip_inlined_errors,
         },
         protocol::{
             ClientToServerMessageStream, ListDatabasesError, ListDatabasesRequest, ListUsersError,
@@ -357,15 +358,55 @@ fn edit_privileges_with_editor(
         .context("Failed to look up your UNIX username")
         .and_then(|u| u.ok_or(anyhow::anyhow!("Failed to look up your UNIX username")))?;
 
-    let editor_content =
+    let mut editor_content =
         generate_editor_content_from_privilege_data(privilege_data, &unix_user.name, database_name);
 
-    // TODO: handle errors better here
-    let result = Editor::new().extension("tsv").edit(&editor_content)?;
+    loop {
+        let Some(edited_content) = Editor::new().extension("tsv").edit(&editor_content)? else {
+            return Ok(privilege_data.to_vec());
+        };
 
-    match result {
-        None => Ok(privilege_data.to_vec()),
-        Some(result) => parse_privilege_data_from_editor_content(&result)
-            .context("Could not parse privilege data from editor"),
+        let cleaned_content = strip_inlined_errors(&edited_content);
+
+        let errors = match parse_privilege_data_from_editor_content(&cleaned_content) {
+            Ok(rows) => return Ok(rows),
+            Err(errors) => errors,
+        };
+
+        println!("The following errors were found in your edits:\n");
+        for (i, error) in errors.iter().enumerate() {
+            if i > 0 {
+                println!("---\n");
+            }
+
+            println!("{}. On line {}:\n", i + 1, error.line_number + 1);
+
+            debug_assert!(
+                error.line_number < cleaned_content.lines().count(),
+                "Error line number {} is out of bounds for content with {} lines",
+                error.line_number,
+                cleaned_content.lines().count()
+            );
+
+            if let Some(line) = cleaned_content.lines().nth(error.line_number) {
+                println!("> {}", format_privilege_row_header_for(line));
+                println!("> {line}\n");
+            }
+
+            println!("{}\n", error.message);
+        }
+
+        let retry = Confirm::new()
+            .with_prompt("Do you want to go back and fix these errors?")
+            .default(true)
+            .show_default(true)
+            .interact()?;
+
+        if !retry {
+            println!("Aborting edit, no changes will be made.");
+            return Ok(privilege_data.to_vec());
+        }
+
+        editor_content = inline_errors_into_editor_content(&cleaned_content, &errors);
     }
 }

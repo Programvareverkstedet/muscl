@@ -294,57 +294,113 @@ fn parse_privilege_row_from_editor(row: &str) -> PrivilegeRowParseResult {
     PrivilegeRowParseResult::PrivilegeRow(row)
 }
 
+#[derive(Debug, Clone)]
+pub struct PrivilegeLineError {
+    pub line_number: usize,
+    pub message: String,
+}
+
 pub fn parse_privilege_data_from_editor_content(
     content: &str,
-) -> anyhow::Result<Vec<DatabasePrivilegeRow>> {
+) -> Result<Vec<DatabasePrivilegeRow>, Vec<PrivilegeLineError>> {
+    let mut rows = Vec::new();
+    let mut errors = Vec::new();
+
+    for (line_number, line) in content.lines().map(str::trim).enumerate() {
+        match parse_privilege_row_from_editor(line) {
+            PrivilegeRowParseResult::PrivilegeRow(row) => rows.push(row),
+            PrivilegeRowParseResult::ParserError(e) => errors.push(PrivilegeLineError {
+                line_number,
+                message: format!("{e:#}"),
+            }),
+            PrivilegeRowParseResult::TooFewFields(n) => errors.push(PrivilegeLineError {
+                line_number,
+                message: format!(
+                    "Too few fields: expected {}, found {n}",
+                    DATABASE_PRIVILEGE_FIELDS.len(),
+                ),
+            }),
+            PrivilegeRowParseResult::TooManyFields(n) => errors.push(PrivilegeLineError {
+                line_number,
+                message: format!(
+                    "Too many fields: expected {}, found {n}",
+                    DATABASE_PRIVILEGE_FIELDS.len(),
+                ),
+            }),
+            PrivilegeRowParseResult::Header
+            | PrivilegeRowParseResult::Comment
+            | PrivilegeRowParseResult::Empty => {}
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(rows)
+    } else {
+        Err(errors)
+    }
+}
+
+pub fn format_privilege_row_header_for(line: &str) -> String {
+    let mut header: Vec<_> = DATABASE_PRIVILEGE_FIELDS
+        .into_iter()
+        .map(db_priv_field_human_readable_name)
+        .collect();
+
+    let splitline = line.split_ascii_whitespace().collect::<Vec<&str>>();
+    let dbname = splitline.first().unwrap_or(&"");
+    let username = splitline.get(1).unwrap_or(&"");
+
+    header[0] = format!("{:width$}", header[0], width = dbname.len());
+    header[1] = format!("{:width$}", header[1], width = username.len());
+
+    header.join(" ")
+}
+
+const ERROR_MARKER_PREFIX: &str = "# ^ ERROR: ";
+const ERROR_CONTINUATION_PREFIX: &str = "#          ";
+
+/// Inline error messages into the editor content, so that the user can easily see what went wrong.
+pub fn inline_errors_into_editor_content(content: &str, errors: &[PrivilegeLineError]) -> String {
     content
-        .trim()
         .lines()
-        .map(str::trim)
         .enumerate()
-        .map(|(i, line)| {
-            let mut header: Vec<_> = DATABASE_PRIVILEGE_FIELDS
-                .into_iter()
-                .map(db_priv_field_human_readable_name)
-                .collect();
+        .flat_map(|(line_number, line)| {
+            let comments = errors
+                .iter()
+                .filter(move |e| e.line_number == line_number)
+                .flat_map(|e| e.message.lines())
+                .enumerate()
+                .map(|(i, message_line)| {
+                    if i == 0 {
+                        format!("{ERROR_MARKER_PREFIX}{message_line}")
+                    } else {
+                        format!("{ERROR_CONTINUATION_PREFIX}{message_line}")
+                    }
+                });
 
-            let splitline = line.split_ascii_whitespace().collect::<Vec<&str>>();
-            let dbname = splitline.first().unwrap_or(&"");
-            let username = splitline.get(1).unwrap_or(&"");
-
-            // Pad the first two columns with spaces to align the privileges.
-            header[0] = format!("{:width$}", header[0], width = dbname.len());
-            header[1] = format!("{:width$}", header[1], width = username.len());
-
-            let header: String = header.join(" ");
-
-            match parse_privilege_row_from_editor(line) {
-                PrivilegeRowParseResult::PrivilegeRow(row) => Ok(Some(row)),
-                PrivilegeRowParseResult::ParserError(e) => Err(anyhow!(
-                    "Could not parse privilege row from line {i}:\n  {header}\n  {line}\n  {e}",
-                )),
-
-                PrivilegeRowParseResult::TooFewFields(n) => Err(anyhow!(
-                    "Too few fields in line {i}:\n  {header}\n  {line}\n  Expected to find {} fields, found {n}",
-                    DATABASE_PRIVILEGE_FIELDS.len(),
-                )),
-                PrivilegeRowParseResult::TooManyFields(n) => Err(anyhow!(
-                    "Too many fields in line {i}:\n  {header}\n  {line}\n  Expected to find {} fields, found {n}",
-                    DATABASE_PRIVILEGE_FIELDS.len(),
-                )),
-                PrivilegeRowParseResult::Header => Ok(None),
-                PrivilegeRowParseResult::Comment => Ok(None),
-                PrivilegeRowParseResult::Empty => Ok(None),
-            }
+            std::iter::once(line.to_string()).chain(comments)
         })
-        .filter_map(std::result::Result::transpose)
-        .collect::<anyhow::Result<Vec<DatabasePrivilegeRow>>>()
+        .join("\n")
+}
+
+/// Remove any error annotations previously added by [`inline_errors_into_editor_content`].
+pub fn strip_inlined_errors(content: &str) -> String {
+    content
+        .lines()
+        .scan(false, |in_error_block, line| {
+            *in_error_block = line.starts_with(ERROR_MARKER_PREFIX)
+                || (*in_error_block && line.starts_with(ERROR_CONTINUATION_PREFIX));
+            Some((line, *in_error_block))
+        })
+        .filter_map(|(line, in_error_block)| (!in_error_block).then_some(line))
+        .join("\n")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use indoc::indoc;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -455,5 +511,112 @@ mod tests {
         let parsed_permissions = parse_privilege_data_from_editor_content(&content).unwrap();
 
         assert_eq!(permissions, parsed_permissions);
+    }
+
+    #[test]
+    fn test_parse_privilege_data_from_editor_content_collects_all_errors() {
+        let content = indoc! {"
+            # This is a comment and should be ignored.
+
+            db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+
+            # Another comment
+            db2 user2 X Y Y Y Y Y Y Y Y Y Y Y Y Y
+            db3 user3 too few fields
+
+            db4 user4 Y N Y N Y N Y N Y N Y N Y N
+            db5 user5 Y Y Y Y Y Y Y Y Y Y Y Y Y too many fields
+        "};
+
+        let errors = parse_privilege_data_from_editor_content(content).unwrap_err();
+
+        assert_eq!(errors.len(), 3);
+
+        assert_eq!(errors[0].line_number, 5);
+        assert!(errors[0].message.contains("Select"));
+
+        assert_eq!(errors[1].line_number, 6);
+        assert!(errors[1].message.contains("Too few fields"));
+
+        assert_eq!(errors[2].line_number, 9);
+        assert!(errors[2].message.contains("Too many fields"));
+    }
+
+    #[test]
+    fn test_inline_errors_into_editor_content() {
+        let content = indoc! {"
+            # A comment before anything else.
+
+            db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+            db2 user2 X Y Y Y Y Y Y Y Y Y Y Y Y Y
+
+            # A comment between the two invalid lines.
+            db3 user3 too few fields
+            db4 user4 Y N Y N Y N Y N Y N Y N Y N
+        "};
+
+        let errors = vec![
+            PrivilegeLineError {
+                line_number: 3,
+                message: "Expected Y or N, found X".to_string(),
+            },
+            PrivilegeLineError {
+                line_number: 6,
+                message: "Expected 16 fields, found 5".to_string(),
+            },
+            PrivilegeLineError {
+                line_number: 7,
+                message: "Could not parse privilege row:\nExpected Y or N, found Q".to_string(),
+            },
+        ];
+
+        let result = inline_errors_into_editor_content(content, &errors);
+
+        let expected = indoc! {"
+            # A comment before anything else.
+
+            db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+            db2 user2 X Y Y Y Y Y Y Y Y Y Y Y Y Y
+            # ^ ERROR: Expected Y or N, found X
+
+            # A comment between the two invalid lines.
+            db3 user3 too few fields
+            # ^ ERROR: Expected 16 fields, found 5
+            db4 user4 Y N Y N Y N Y N Y N Y N Y N
+            # ^ ERROR: Could not parse privilege row:
+            #          Expected Y or N, found Q
+        "};
+
+        assert_eq!(result, expected.trim_end());
+    }
+
+    #[test]
+    fn test_strip_inlined_errors_recovers_original_content() {
+        let content = indoc! {"
+            # A comment before anything else.
+
+            db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+            db2 user2 X Y Y Y Y Y Y Y Y Y Y Y Y Y
+
+            # A comment between the two invalid lines.
+            db3 user3 too few fields
+            db4 user4 Y N Y N Y N Y N Y N Y N Y N
+        "};
+        let content = content.trim_end();
+
+        let errors = vec![
+            PrivilegeLineError {
+                line_number: 3,
+                message: "Expected Y or N, found X".to_string(),
+            },
+            PrivilegeLineError {
+                line_number: 6,
+                message: "Could not parse privilege row:\nExpected Y or N, found Q".to_string(),
+            },
+        ];
+
+        let inlined = inline_errors_into_editor_content(content, &errors);
+        assert_ne!(inlined, content);
+        assert_eq!(strip_inlined_errors(&inlined), content);
     }
 }
