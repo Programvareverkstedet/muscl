@@ -27,11 +27,17 @@ pub fn get_user_filtered_groups(user: &UnixUser, group_denylist: &GroupDenylist)
 /// This function creates a regex that matches items (users, databases)
 /// that belong to the user or any of the user's groups.
 pub fn create_user_group_matching_regex(user: &UnixUser, group_denylist: &GroupDenylist) -> String {
+    let escaped_username = regex::escape(&user.username);
     let filtered_groups = get_user_filtered_groups(user, group_denylist);
     if filtered_groups.is_empty() {
-        format!("{}_.+", user.username)
+        format!("{escaped_username}_.+")
     } else {
-        format!("({}|{})_.+", user.username, filtered_groups.join("|"))
+        let escaped_groups = filtered_groups
+            .iter()
+            .map(|group| regex::escape(group))
+            .collect::<Vec<_>>()
+            .join("|");
+        format!("({escaped_username}|{escaped_groups})_.+")
     }
 }
 
