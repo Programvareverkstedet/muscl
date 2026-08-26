@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::{Context, anyhow};
+use arc_swap::ArcSwap;
 use sha2::{Digest, Sha256};
 use sqlx::MySqlPool;
 use tokio::{
@@ -46,7 +47,7 @@ pub struct ReloadEvent;
 pub struct Supervisor {
     config_path: PathBuf,
     config: Arc<Mutex<ServerConfig>>,
-    group_deny_list: Arc<RwLock<GroupDenylist>>,
+    group_deny_list: Arc<ArcSwap<GroupDenylist>>,
     group_denylist_file_hash: Mutex<Option<[u8; 32]>>,
     systemd_mode: bool,
 
@@ -55,7 +56,7 @@ pub struct Supervisor {
     reload_message_receiver: broadcast::Receiver<ReloadEvent>,
     signal_handler_task: JoinHandle<()>,
 
-    db_connection_pool: Arc<RwLock<MySqlPool>>,
+    db_connection_pool: Arc<ArcSwap<MySqlPool>>,
     db_is_mariadb: Arc<AtomicBool>,
     listener: Arc<RwLock<TokioUnixListener>>,
     listener_task: JoinHandle<anyhow::Result<()>>,
@@ -89,10 +90,10 @@ impl Supervisor {
                 denylist.len(),
                 denylist_path
             );
-            Arc::new(RwLock::new(denylist))
+            Arc::new(ArcSwap::from_pointee(denylist))
         } else {
             tracing::debug!("No group denylist file specified, proceeding without a denylist");
-            Arc::new(RwLock::new(GroupDenylist::new()))
+            Arc::new(ArcSwap::from_pointee(GroupDenylist::new()))
         };
 
         let mut watchdog_duration = None;
@@ -112,11 +113,12 @@ impl Supervisor {
         #[cfg(not(target_os = "linux"))]
         let watchdog_task = None;
 
-        let db_connection_pool =
-            Arc::new(RwLock::new(create_db_connection_pool(&config.mysql).await?));
+        let db_connection_pool = Arc::new(ArcSwap::from_pointee(
+            create_db_connection_pool(&config.mysql).await?,
+        ));
 
         let db_is_mariadb = {
-            let connection = db_connection_pool.read().await;
+            let connection = db_connection_pool.load_full();
             let version: String = sqlx::query_scalar("SELECT VERSION()")
                 .fetch_one(&*connection)
                 .await
@@ -269,14 +271,12 @@ impl Supervisor {
             *last_hash = None;
             GroupDenylist::new()
         };
-        let mut group_deny_list_lock = self.group_deny_list.write().await;
-        *group_deny_list_lock = group_deny_list;
+        self.group_deny_list.store(Arc::new(group_deny_list));
         Ok(())
     }
 
     async fn restart_db_connection_pool(&self) -> anyhow::Result<()> {
         let config = self.config.lock().await;
-        let mut connection_pool = self.db_connection_pool.clone().write_owned().await;
 
         let new_db_pool = create_db_connection_pool(&config.mysql).await?;
         let db_is_mariadb = {
@@ -294,10 +294,9 @@ impl Supervisor {
             result
         };
 
-        let old_db_pool = std::mem::replace(&mut *connection_pool, new_db_pool);
+        let old_db_pool = self.db_connection_pool.swap(Arc::new(new_db_pool));
         self.db_is_mariadb.store(db_is_mariadb, Ordering::Release);
 
-        drop(connection_pool);
         drop(config);
 
         tracing::debug!("Closing previous database connection pool");
@@ -429,7 +428,7 @@ impl Supervisor {
             });
 
         tracing::debug!("Shutting down database connection pool");
-        self.db_connection_pool.read().await.close().await;
+        self.db_connection_pool.load_full().close().await;
 
         tracing::debug!("Server shutdown complete");
 
@@ -660,10 +659,10 @@ async fn listener_task(
     listener: Arc<RwLock<TokioUnixListener>>,
     session_semaphore: Arc<Semaphore>,
     total_requests_handled: Arc<AtomicU64>,
-    db_pool: Arc<RwLock<MySqlPool>>,
+    db_pool: Arc<ArcSwap<MySqlPool>>,
     mut supervisor_message_receiver: broadcast::Receiver<SupervisorMessage>,
     db_is_mariadb: Arc<AtomicBool>,
-    group_denylist: Arc<RwLock<GroupDenylist>>,
+    group_denylist: Arc<ArcSwap<GroupDenylist>>,
 ) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     sd_notify::notify(&[sd_notify::NotifyState::Ready])?;
@@ -727,9 +726,9 @@ async fn listener_task(
                         tracing::debug!("Got new connection, assigned session ID {}", conn_id);
 
                         let session_id = SessionId::new(conn_id);
-                        let db_pool_clone = db_pool.clone();
+                        let db_pool_snapshot = db_pool.load_full();
                         let db_is_mariadb_clone = db_is_mariadb.load(Ordering::Acquire);
-                        let group_denylist_arc_clone = group_denylist.clone();
+                        let group_denylist_snapshot = group_denylist.load_full();
                         let session_semaphore_clone = session_semaphore.clone();
                         let total_requests_handled_clone = total_requests_handled.clone();
                         task_tracker.spawn(async move {
@@ -741,9 +740,9 @@ async fn listener_task(
                             match session_handler(
                                 conn,
                                 session_id,
-                                db_pool_clone,
+                                db_pool_snapshot,
                                 db_is_mariadb_clone,
-                                &*group_denylist_arc_clone.read().await,
+                                &group_denylist_snapshot,
                                 total_requests_handled_clone,
                             ).await {
                                 Ok(()) => {},

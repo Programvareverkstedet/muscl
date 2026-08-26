@@ -14,7 +14,7 @@ use nix::{
 };
 use sqlx::mysql::MySqlPoolOptions;
 use std::os::unix::net::UnixStream as StdUnixStream;
-use tokio::{net::UnixStream as TokioUnixStream, sync::RwLock};
+use tokio::net::UnixStream as TokioUnixStream;
 use tracing_subscriber::prelude::*;
 
 use crate::{
@@ -327,7 +327,7 @@ fn run_forked_server(
             };
 
             let session_id = SessionId::new(0);
-            let db_pool = Arc::new(RwLock::new(db_pool));
+            let db_pool = Arc::new(db_pool);
             session_handler::session_handler_with_unix_user(
                 socket,
                 session_id,

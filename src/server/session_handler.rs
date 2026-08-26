@@ -7,7 +7,7 @@ use futures_util::{SinkExt, StreamExt};
 use indoc::concatdoc;
 use itertools::Itertools;
 use sqlx::{MySqlConnection, MySqlPool};
-use tokio::{net::UnixStream, sync::RwLock};
+use tokio::net::UnixStream;
 use tracing::Instrument;
 
 use crate::{
@@ -56,7 +56,7 @@ impl SessionId {
 pub async fn session_handler(
     socket: UnixStream,
     session_id: SessionId,
-    db_pool: Arc<RwLock<MySqlPool>>,
+    db_pool: Arc<MySqlPool>,
     db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
     request_counter: Arc<AtomicU64>,
@@ -136,7 +136,7 @@ pub async fn session_handler_with_unix_user(
     socket: UnixStream,
     session_id: SessionId,
     unix_user: &UnixUser,
-    db_pool: Arc<RwLock<MySqlPool>>,
+    db_pool: Arc<MySqlPool>,
     db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
     request_counter: Arc<AtomicU64>,
@@ -144,7 +144,7 @@ pub async fn session_handler_with_unix_user(
     let mut message_stream = create_server_to_client_message_stream(socket);
 
     tracing::trace!("Requesting database connection from pool");
-    let mut db_connection = match db_pool.read().await.acquire().await {
+    let mut db_connection = match db_pool.acquire().await {
         Ok(connection) => connection,
         Err(err) => {
             message_stream
