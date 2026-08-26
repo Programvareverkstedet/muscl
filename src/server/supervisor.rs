@@ -47,6 +47,7 @@ pub struct Supervisor {
     systemd_mode: bool,
 
     shutdown_cancel_token: CancellationToken,
+    reload_message_sender: broadcast::Sender<ReloadEvent>,
     reload_message_receiver: broadcast::Receiver<ReloadEvent>,
     signal_handler_task: JoinHandle<()>,
 
@@ -159,7 +160,7 @@ impl Supervisor {
         let (reload_tx, reload_rx) = broadcast::channel(1);
         let shutdown_cancel_token = CancellationToken::new();
         let signal_handler_task =
-            spawn_signal_handler_task(reload_tx, shutdown_cancel_token.clone());
+            spawn_signal_handler_task(reload_tx.clone(), shutdown_cancel_token.clone());
 
         let listener_clone = listener.clone();
         let task_tracker_clone = task_tracker.clone();
@@ -179,6 +180,7 @@ impl Supervisor {
             config: Arc::new(Mutex::new(config)),
             group_deny_list,
             systemd_mode,
+            reload_message_sender: reload_tx,
             reload_message_receiver: reload_rx,
             shutdown_cancel_token,
             signal_handler_task,
@@ -371,21 +373,44 @@ impl Supervisor {
     }
 
     pub async fn run(&self) -> anyhow::Result<()> {
+        let mut reload_channel_closed = false;
+
         loop {
             select! {
                 biased;
 
-                _ = async {
-                  let mut rx = self.reload_message_receiver.resubscribe();
-                  rx.recv().await
+                reload_result = async {
+                  if reload_channel_closed {
+                    std::future::pending().await
+                  } else {
+                    let mut rx = self.reload_message_receiver.resubscribe();
+                    rx.recv().await
+                  }
                 } => {
-                    tracing::info!("Reloading configuration");
-                    match self.reload().await {
-                        Ok(()) => {
-                            tracing::info!("Configuration reloaded successfully");
+                    match reload_result {
+                        Ok(ReloadEvent) => {
+                            tracing::info!("Reloading configuration");
+                            match self.reload().await {
+                                Ok(()) => {
+                                    tracing::info!("Configuration reloaded successfully");
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to reload configuration: {}", e);
+                                }
+                            }
                         }
-                        Err(e) => {
-                            tracing::error!("Failed to reload configuration: {}", e);
+                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                            tracing::warn!(
+                                "Reload signal receiver lagged behind, skipped {} reload event(s)",
+                                skipped
+                            );
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                          debug_assert!(false, "Reload signal channel unexpectedly closed、this shouldn't really happen");
+                            tracing::error!(
+                                "Reload signal channel unexpectedly closed, no longer listening for reload signals"
+                            );
+                            reload_channel_closed = true;
                         }
                     }
                 }
