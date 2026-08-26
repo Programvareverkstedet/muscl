@@ -6,11 +6,11 @@ use super::base::{
 };
 use crate::core::{
     common::{rev_yn, yn},
-    types::MySQLDatabase,
+    types::{MySQLDatabase, MySQLUser},
 };
 use anyhow::{Context, anyhow};
 use itertools::Itertools;
-use std::cmp::max;
+use std::{cmp::max, collections::HashMap};
 
 /// Generates a single row of the privileges table for the editor.
 #[must_use]
@@ -340,6 +340,46 @@ pub fn parse_privilege_data_from_editor_content(
     (rows, errors)
 }
 
+/// Map each (database, user) pair declared in `content` to the line number that declares it.
+pub fn map_privilege_lines_by_target(content: &str) -> HashMap<(MySQLDatabase, MySQLUser), usize> {
+    content
+        .lines()
+        .enumerate()
+        .filter_map(|(line_number, line)| {
+            let mut fields = line.split_ascii_whitespace();
+            let db: MySQLDatabase = fields.next()?.into();
+            let user: MySQLUser = fields.next()?.into();
+            Some(((db, user), line_number))
+        })
+        .collect()
+}
+
+/// Print each error alongside the line it applies to.
+pub fn print_privilege_line_errors(content: &str, errors: &[PrivilegeLineError]) {
+    println!("The following errors were found in your edits:\n");
+    for (i, error) in errors.iter().enumerate() {
+        if i > 0 {
+            println!("---\n");
+        }
+
+        println!("{}. On line {}:\n", i + 1, error.line_number + 1);
+
+        debug_assert!(
+            error.line_number < content.lines().count(),
+            "Error line number {} is out of bounds for content with {} lines",
+            error.line_number,
+            content.lines().count()
+        );
+
+        if let Some(line) = content.lines().nth(error.line_number) {
+            println!("> {}", format_privilege_row_header_for(line));
+            println!("> {line}\n");
+        }
+
+        println!("{}\n", error.message);
+    }
+}
+
 pub fn format_privilege_row_header_for(line: &str) -> String {
     let mut header: Vec<_> = DATABASE_PRIVILEGE_FIELDS
         .into_iter()
@@ -620,5 +660,19 @@ mod tests {
         let inlined = inline_errors_into_editor_content(content, &errors);
         assert_ne!(inlined, content);
         assert_eq!(strip_inlined_errors(&inlined), content);
+    }
+
+    #[test]
+    fn test_map_privilege_lines_by_target() {
+        let content = indoc! {"
+            db1 user1 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+            db2 user2 Y Y Y Y Y Y Y Y Y Y Y Y Y Y
+        "};
+        let content = content.trim_end();
+
+        let lines = map_privilege_lines_by_target(content);
+
+        assert_eq!(lines.get(&("db2".into(), "user2".into())), Some(&1));
+        assert_eq!(lines.get(&("db3".into(), "user3".into())), None);
     }
 }

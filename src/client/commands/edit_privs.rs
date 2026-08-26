@@ -18,10 +18,11 @@ use crate::{
         completion::{mysql_database_completer, mysql_user_completer},
         database_privileges::{
             DatabasePrivilegeEdit, DatabasePrivilegeEditEntry, DatabasePrivilegeRow,
-            DatabasePrivilegeRowDiff, DatabasePrivilegesDiff, create_or_modify_privilege_rows,
-            diff_privileges, display_privilege_diffs, format_privilege_row_header_for,
+            DatabasePrivilegeRowDiff, DatabasePrivilegesDiff, PrivilegeLineError,
+            create_or_modify_privilege_rows, diff_privileges, display_privilege_diffs,
             generate_editor_content_from_privilege_data, inline_errors_into_editor_content,
-            parse_privilege_data_from_editor_content, reduce_privilege_diffs, strip_inlined_errors,
+            map_privilege_lines_by_target, parse_privilege_data_from_editor_content,
+            print_privilege_line_errors, reduce_privilege_diffs, strip_inlined_errors,
         },
         protocol::{
             ClientToServerMessageStream, ListDatabasesError, ListDatabasesRequest, ListUsersError,
@@ -227,8 +228,12 @@ pub async fn edit_database_privileges(
                 "Cannot launch editor in non-interactive mode. Please provide privileges via command line arguments."
             );
         }
-        let privileges_to_change =
-            edit_privileges_with_editor(&existing_privilege_rows, use_database.as_ref())?;
+        let privileges_to_change = edit_privileges_with_editor(
+            &existing_privilege_rows,
+            use_database.as_ref(),
+            &mut server_connection,
+        )
+        .await?;
         diff_privileges(&existing_privilege_rows, &privileges_to_change)
     } else {
         let privileges_to_change = parse_privilege_tables(&privs)?;
@@ -349,10 +354,62 @@ fn parse_privilege_tables(
         .collect::<anyhow::Result<BTreeSet<DatabasePrivilegeRowDiff>>>()
 }
 
-fn edit_privileges_with_editor(
+/// Checks the parsed privilege lines against the database for ownership and existence errors,
+/// and pulls those lines out of the parsed data, returning the list of errors so it can be
+/// reported back to the user, alongside with any parsing errors.
+async fn detect_ownership_and_existence_errors(
+    server_connection: &mut ClientToServerMessageStream,
+    privilege_data: &[DatabasePrivilegeRow],
+    rows: &mut Vec<DatabasePrivilegeRow>,
+    cleaned_content: &str,
+) -> anyhow::Result<Vec<PrivilegeLineError>> {
+    let diffs = diff_privileges(privilege_data, rows);
+
+    let database_existence_map = databases_exist(server_connection, &diffs).await?;
+    let user_existence_map = users_exist(server_connection, &diffs).await?;
+    let line_numbers_by_target = map_privilege_lines_by_target(cleaned_content);
+
+    let mut errors = Vec::new();
+
+    for diff in &diffs {
+        let db = diff.get_database_name();
+        let user = diff.get_user_name();
+
+        let db_err = database_existence_map
+            .get(db)
+            .and_then(|r| r.as_ref().err());
+        let user_err = user_existence_map.get(user).and_then(|r| r.as_ref().err());
+
+        if db_err.is_none() && user_err.is_none() {
+            continue;
+        }
+
+        rows.retain(|row| row.db != *db || row.user != *user);
+
+        if let Some(&line_number) = line_numbers_by_target.get(&(db.clone(), user.clone())) {
+            if let Some(err) = db_err {
+                errors.push(PrivilegeLineError {
+                    line_number,
+                    message: err.to_error_message(db),
+                });
+            }
+            if let Some(err) = user_err {
+                errors.push(PrivilegeLineError {
+                    line_number,
+                    message: err.to_error_message(user),
+                });
+            }
+        }
+    }
+
+    Ok(errors)
+}
+
+async fn edit_privileges_with_editor(
     privilege_data: &[DatabasePrivilegeRow],
     // NOTE: this is only used for backwards compat with mysql-admtools
     database_name: Option<&MySQLDatabase>,
+    server_connection: &mut ClientToServerMessageStream,
 ) -> anyhow::Result<Vec<DatabasePrivilegeRow>> {
     let unix_user = User::from_uid(getuid())
         .context("Failed to look up your UNIX username")
@@ -368,34 +425,27 @@ fn edit_privileges_with_editor(
 
         let cleaned_content = strip_inlined_errors(&edited_content);
 
-        let (rows, errors) = parse_privilege_data_from_editor_content(&cleaned_content);
+        let (mut rows, mut errors) = parse_privilege_data_from_editor_content(&cleaned_content);
+
+        errors.extend(
+            detect_ownership_and_existence_errors(
+                server_connection,
+                privilege_data,
+                &mut rows,
+                &cleaned_content,
+            )
+            .await?,
+        );
+        errors.sort_by_key(|error| error.line_number);
 
         if errors.is_empty() {
             return Ok(rows);
         }
 
-        println!("The following errors were found in your edits:\n");
-        for (i, error) in errors.iter().enumerate() {
-            if i > 0 {
-                println!("---\n");
-            }
-
-            println!("{}. On line {}:\n", i + 1, error.line_number + 1);
-
-            debug_assert!(
-                error.line_number < cleaned_content.lines().count(),
-                "Error line number {} is out of bounds for content with {} lines",
-                error.line_number,
-                cleaned_content.lines().count()
-            );
-
-            if let Some(line) = cleaned_content.lines().nth(error.line_number) {
-                println!("> {}", format_privilege_row_header_for(line));
-                println!("> {line}\n");
-            }
-
-            println!("{}\n", error.message);
-        }
+        // TODO: should we give the user the list of valid users + groups in case
+        //       they get an ownership error? If so, should it only be listed in
+        //       stderr, or do we put a big comment on the top/bottom of the editor?
+        print_privilege_line_errors(&cleaned_content, &errors);
 
         let retry = Confirm::new()
             .with_prompt("Do you want to go back and fix these errors?")
