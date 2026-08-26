@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -15,7 +15,7 @@ use sqlx::MySqlPool;
 use tokio::{
     net::UnixListener as TokioUnixListener,
     select,
-    sync::{Mutex, Notify, RwLock, broadcast},
+    sync::{Mutex, RwLock, Semaphore, broadcast},
     task::{JoinHandle, JoinSet},
     time::interval,
 };
@@ -29,6 +29,8 @@ use crate::{
         session_handler::{SessionId, session_handler},
     },
 };
+
+const MAX_CONCURRENT_SESSIONS: usize = 8;
 
 #[derive(Clone, Debug)]
 pub enum SupervisorMessage {
@@ -57,8 +59,7 @@ pub struct Supervisor {
     db_is_mariadb: Arc<RwLock<bool>>,
     listener: Arc<RwLock<TokioUnixListener>>,
     listener_task: JoinHandle<anyhow::Result<()>>,
-    active_connection_count: Arc<AtomicUsize>,
-    connections_drained_notify: Arc<Notify>,
+    session_semaphore: Arc<Semaphore>,
     supervisor_message_sender: broadcast::Sender<SupervisorMessage>,
 
     watchdog_timeout: Option<Duration>,
@@ -129,12 +130,11 @@ impl Supervisor {
             Arc::new(RwLock::new(result))
         };
 
-        let active_connection_count = Arc::new(AtomicUsize::new(0));
-        let connections_drained_notify = Arc::new(Notify::new());
+        let session_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_SESSIONS));
 
         #[cfg(target_os = "linux")]
         let status_notifier_task = if systemd_mode {
-            Some(spawn_status_notifier_task(active_connection_count.clone()))
+            Some(spawn_status_notifier_task(session_semaphore.clone()))
         } else {
             None
         };
@@ -167,13 +167,11 @@ impl Supervisor {
             spawn_signal_handler_task(reload_tx.clone(), shutdown_cancel_token.clone());
 
         let listener_clone = listener.clone();
-        let active_connection_count_clone = active_connection_count.clone();
-        let connections_drained_notify_clone = connections_drained_notify.clone();
+        let session_semaphore_clone = session_semaphore.clone();
         let listener_task = {
             tokio::spawn(listener_task(
                 listener_clone,
-                active_connection_count_clone,
-                connections_drained_notify_clone,
+                session_semaphore_clone,
                 db_connection_pool.clone(),
                 rx,
                 db_is_mariadb.clone(),
@@ -195,8 +193,7 @@ impl Supervisor {
             db_is_mariadb,
             listener,
             listener_task,
-            active_connection_count,
-            connections_drained_notify,
+            session_semaphore,
             supervisor_message_sender: tx,
             watchdog_timeout: watchdog_duration,
             systemd_watchdog_task: watchdog_task,
@@ -219,13 +216,10 @@ impl Supervisor {
     }
 
     async fn wait_for_existing_connections_to_finish(&self) -> anyhow::Result<()> {
-        loop {
-            let notified = self.connections_drained_notify.notified();
-            if self.active_connection_count.load(Ordering::Acquire) == 0 {
-                break;
-            }
-            notified.await;
-        }
+        let _ = self
+            .session_semaphore
+            .acquire_many(MAX_CONCURRENT_SESSIONS as u32)
+            .await?;
         Ok(())
     }
 
@@ -413,7 +407,7 @@ impl Supervisor {
         tracing::debug!("Stop accepting new connections");
         self.stop_receiving_new_connections()?;
 
-        let connection_count = self.active_connection_count.load(Ordering::Relaxed);
+        let connection_count = MAX_CONCURRENT_SESSIONS - self.session_semaphore.available_permits();
         tracing::debug!(
             "Waiting for {} existing connections to finish",
             connection_count
@@ -509,14 +503,14 @@ fn spawn_watchdog_task(duration: Duration) -> JoinHandle<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn spawn_status_notifier_task(active_connection_count: Arc<AtomicUsize>) -> JoinHandle<()> {
+fn spawn_status_notifier_task(session_semaphore: Arc<Semaphore>) -> JoinHandle<()> {
     const STATUS_UPDATE_INTERVAL_SECS: Duration = Duration::from_secs(1);
 
     tokio::spawn(async move {
         let mut interval = interval(STATUS_UPDATE_INTERVAL_SECS);
         loop {
             interval.tick().await;
-            let count = active_connection_count.load(Ordering::Relaxed);
+            let count = MAX_CONCURRENT_SESSIONS - session_semaphore.available_permits();
 
             let message = if count > 0 {
                 format!("Handling {count} connections")
@@ -642,8 +636,7 @@ fn spawn_signal_handler_task(
 
 async fn listener_task(
     listener: Arc<RwLock<TokioUnixListener>>,
-    active_connection_count: Arc<AtomicUsize>,
-    connections_drained_notify: Arc<Notify>,
+    session_semaphore: Arc<Semaphore>,
     db_pool: Arc<RwLock<MySqlPool>>,
     mut supervisor_message_receiver: broadcast::Receiver<SupervisorMessage>,
     db_is_mariadb: Arc<RwLock<bool>>,
@@ -714,8 +707,13 @@ async fn listener_task(
                         let db_pool_clone = db_pool.clone();
                         let db_is_mariadb_clone = *db_is_mariadb.read().await;
                         let group_denylist_arc_clone = group_denylist.clone();
-                        active_connection_count.fetch_add(1, Ordering::AcqRel);
+                        let session_semaphore_clone = session_semaphore.clone();
                         task_tracker.spawn(async move {
+                            let _permit = session_semaphore_clone
+                                .acquire_owned()
+                                .await
+                                .expect("session semaphore should never be closed");
+
                             match session_handler(
                                 conn,
                                 session_id,
@@ -735,9 +733,6 @@ async fn listener_task(
             Some(result) = task_tracker.join_next(), if !task_tracker.is_empty() => {
                 if let Err(e) = result {
                     tracing::error!("A connection handler task panicked: {}", e);
-                }
-                if active_connection_count.fetch_sub(1, Ordering::AcqRel) == 1 {
-                    connections_drained_notify.notify_waiters();
                 }
             }
         }
