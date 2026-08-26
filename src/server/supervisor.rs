@@ -60,6 +60,7 @@ pub struct Supervisor {
     listener: Arc<RwLock<TokioUnixListener>>,
     listener_task: JoinHandle<anyhow::Result<()>>,
     session_semaphore: Arc<Semaphore>,
+    total_requests_handled: Arc<AtomicU64>,
     supervisor_message_sender: broadcast::Sender<SupervisorMessage>,
 
     watchdog_timeout: Option<Duration>,
@@ -131,10 +132,14 @@ impl Supervisor {
         };
 
         let session_semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_SESSIONS));
+        let total_requests_handled = Arc::new(AtomicU64::new(0));
 
         #[cfg(target_os = "linux")]
         let status_notifier_task = if systemd_mode {
-            Some(spawn_status_notifier_task(session_semaphore.clone()))
+            Some(spawn_status_notifier_task(
+                session_semaphore.clone(),
+                total_requests_handled.clone(),
+            ))
         } else {
             None
         };
@@ -168,10 +173,12 @@ impl Supervisor {
 
         let listener_clone = listener.clone();
         let session_semaphore_clone = session_semaphore.clone();
+        let total_requests_handled_clone = total_requests_handled.clone();
         let listener_task = {
             tokio::spawn(listener_task(
                 listener_clone,
                 session_semaphore_clone,
+                total_requests_handled_clone,
                 db_connection_pool.clone(),
                 rx,
                 db_is_mariadb.clone(),
@@ -194,6 +201,7 @@ impl Supervisor {
             listener,
             listener_task,
             session_semaphore,
+            total_requests_handled,
             supervisor_message_sender: tx,
             watchdog_timeout: watchdog_duration,
             systemd_watchdog_task: watchdog_task,
@@ -503,7 +511,10 @@ fn spawn_watchdog_task(duration: Duration) -> JoinHandle<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn spawn_status_notifier_task(session_semaphore: Arc<Semaphore>) -> JoinHandle<()> {
+fn spawn_status_notifier_task(
+    session_semaphore: Arc<Semaphore>,
+    total_requests_handled: Arc<AtomicU64>,
+) -> JoinHandle<()> {
     const STATUS_UPDATE_INTERVAL_SECS: Duration = Duration::from_secs(1);
 
     tokio::spawn(async move {
@@ -511,11 +522,12 @@ fn spawn_status_notifier_task(session_semaphore: Arc<Semaphore>) -> JoinHandle<(
         loop {
             interval.tick().await;
             let count = MAX_CONCURRENT_SESSIONS - session_semaphore.available_permits();
+            let total_requests = total_requests_handled.load(Ordering::Relaxed);
 
             let message = if count > 0 {
-                format!("Handling {count} connections")
+                format!("Handling {count} connections, {total_requests} requests handled")
             } else {
-                "Waiting for connections".to_string()
+                format!("Waiting for connections, {total_requests} requests handled")
             };
 
             if let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Status(message.as_str())]) {
@@ -637,6 +649,7 @@ fn spawn_signal_handler_task(
 async fn listener_task(
     listener: Arc<RwLock<TokioUnixListener>>,
     session_semaphore: Arc<Semaphore>,
+    total_requests_handled: Arc<AtomicU64>,
     db_pool: Arc<RwLock<MySqlPool>>,
     mut supervisor_message_receiver: broadcast::Receiver<SupervisorMessage>,
     db_is_mariadb: Arc<RwLock<bool>>,
@@ -708,6 +721,7 @@ async fn listener_task(
                         let db_is_mariadb_clone = *db_is_mariadb.read().await;
                         let group_denylist_arc_clone = group_denylist.clone();
                         let session_semaphore_clone = session_semaphore.clone();
+                        let total_requests_handled_clone = total_requests_handled.clone();
                         task_tracker.spawn(async move {
                             let _permit = session_semaphore_clone
                                 .acquire_owned()
@@ -720,6 +734,7 @@ async fn listener_task(
                                 db_pool_clone,
                                 db_is_mariadb_clone,
                                 &*group_denylist_arc_clone.read().await,
+                                total_requests_handled_clone,
                             ).await {
                                 Ok(()) => {},
                                 Err(e) => tracing::error!("Session {} failed: {}", conn_id, e),

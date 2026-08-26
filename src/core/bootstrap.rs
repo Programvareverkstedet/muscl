@@ -2,7 +2,7 @@ use std::{
     fs,
     os::unix::fs::FileTypeExt,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, atomic::AtomicU64},
     time::Duration,
 };
 
@@ -335,6 +335,7 @@ fn run_forked_server(
                 db_pool,
                 db_is_mariadb,
                 &group_denylist,
+                Arc::new(AtomicU64::new(0)),
             )
             .await?;
             Ok(())

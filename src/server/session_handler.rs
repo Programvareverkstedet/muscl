@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 use futures_util::{SinkExt, StreamExt};
 use indoc::concatdoc;
@@ -56,6 +59,7 @@ pub async fn session_handler(
     db_pool: Arc<RwLock<MySqlPool>>,
     db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
+    request_counter: Arc<AtomicU64>,
 ) -> anyhow::Result<()> {
     let uid = match socket.peer_cred() {
         Ok(cred) => cred.uid(),
@@ -113,6 +117,7 @@ pub async fn session_handler(
             db_pool,
             db_is_mariadb,
             group_denylist,
+            request_counter,
         )
         .await;
 
@@ -134,6 +139,7 @@ pub async fn session_handler_with_unix_user(
     db_pool: Arc<RwLock<MySqlPool>>,
     db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
+    request_counter: Arc<AtomicU64>,
 ) -> anyhow::Result<()> {
     let mut message_stream = create_server_to_client_message_stream(socket);
 
@@ -163,6 +169,7 @@ pub async fn session_handler_with_unix_user(
         &mut db_connection,
         db_is_mariadb,
         group_denylist,
+        request_counter,
     )
     .await;
 
@@ -181,6 +188,7 @@ async fn session_handler_with_db_connection(
     db_connection: &mut MySqlConnection,
     db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
+    request_counter: Arc<AtomicU64>,
 ) -> anyhow::Result<()> {
     stream.send(Response::Ready).await?;
     loop {
@@ -195,6 +203,8 @@ async fn session_handler_with_db_connection(
                 break;
             }
         };
+
+        request_counter.fetch_add(1, Ordering::Relaxed);
 
         let request_span = tracing::info_span!("request", command = request.command_name());
 
