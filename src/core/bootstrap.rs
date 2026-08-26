@@ -249,13 +249,8 @@ fn invoke_server_with_config(config_path: &Path) -> anyhow::Result<StdUnixStream
     let unix_user = UnixUser::from_uid(nix::unistd::getuid().as_raw())?;
 
     match (unsafe { nix::unistd::fork() }).context("Failed to fork")? {
-        nix::unistd::ForkResult::Parent { child } => {
-            tracing::debug!("Forked child process with PID {}", child);
-            Ok(client_socket)
-        }
+        nix::unistd::ForkResult::Parent { .. } => Ok(client_socket),
         nix::unistd::ForkResult::Child => {
-            tracing::debug!("Running server in child process");
-
             landlock_restrict_server(Some(config_path))
                 .context("Failed to apply Landlock restrictions to the server process")?;
 
