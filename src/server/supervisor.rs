@@ -264,8 +264,17 @@ impl Supervisor {
             result
         };
 
-        *connection_pool = new_db_pool;
+        let old_db_pool = std::mem::replace(&mut *connection_pool, new_db_pool);
         *db_is_mariadb_lock = db_is_mariadb;
+
+        drop(connection_pool);
+        drop(db_is_mariadb_lock);
+        drop(config);
+
+        tracing::debug!("Closing previous database connection pool");
+        old_db_pool.close().await;
+        tracing::debug!("Previous database connection pool closed");
+
         Ok(())
     }
 
