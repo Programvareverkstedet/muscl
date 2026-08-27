@@ -27,6 +27,7 @@ use crate::{
     server::{
         authorization::{parse_group_denylist, read_and_parse_group_denylist},
         config::{MysqlConfig, ServerConfig},
+        health_check_registry::HealthCheckRegistry,
         session_handler::{SessionId, session_handler},
     },
 };
@@ -49,6 +50,7 @@ pub struct Supervisor {
     config: Arc<Mutex<ServerConfig>>,
     group_deny_list: Arc<ArcSwap<GroupDenylist>>,
     group_denylist_file_hash: Mutex<Option<[u8; 32]>>,
+    health_registry: HealthCheckRegistry,
     systemd_mode: bool,
 
     shutdown_cancel_token: CancellationToken,
@@ -78,6 +80,8 @@ impl Supervisor {
             tokio::runtime::Handle::current().metrics().num_workers()
         );
 
+        let health_registry = HealthCheckRegistry::new();
+
         let config = ServerConfig::read_config_from_path(&config_path)
             .context("Failed to read server configuration")?;
 
@@ -105,7 +109,10 @@ impl Supervisor {
                     watchdog_duration_.as_millis()
                 );
                 watchdog_duration = Some(watchdog_duration_);
-                Some(spawn_watchdog_task(watchdog_duration_))
+                Some(spawn_watchdog_task(
+                    watchdog_duration_,
+                    health_registry.clone(),
+                ))
             } else {
                 tracing::debug!("Systemd watchdog not enabled, skipping watchdog thread");
                 None
@@ -141,6 +148,7 @@ impl Supervisor {
             Some(spawn_status_notifier_task(
                 session_semaphore.clone(),
                 total_requests_handled.clone(),
+                health_registry.clone(),
             ))
         } else {
             None
@@ -170,8 +178,11 @@ impl Supervisor {
 
         let (reload_tx, reload_rx) = broadcast::channel(1);
         let shutdown_cancel_token = CancellationToken::new();
-        let signal_handler_task =
-            spawn_signal_handler_task(reload_tx.clone(), shutdown_cancel_token.clone());
+        let signal_handler_task = spawn_signal_handler_task(
+            reload_tx.clone(),
+            shutdown_cancel_token.clone(),
+            health_registry.clone(),
+        );
 
         let listener_clone = listener.clone();
         let session_semaphore_clone = session_semaphore.clone();
@@ -185,6 +196,7 @@ impl Supervisor {
                 rx,
                 db_is_mariadb.clone(),
                 group_deny_list.clone(),
+                health_registry.clone(),
             ))
         };
 
@@ -193,6 +205,7 @@ impl Supervisor {
             config: Arc::new(Mutex::new(config)),
             group_deny_list,
             group_denylist_file_hash: Mutex::new(None),
+            health_registry,
             systemd_mode,
             reload_message_sender: reload_tx,
             reload_message_receiver: reload_rx,
@@ -437,6 +450,7 @@ impl Supervisor {
 
     pub async fn run(&self) -> anyhow::Result<()> {
         let mut reload_channel_closed = false;
+        let mut health_requests = self.health_registry.add_petter("supervisor_run_loop");
 
         loop {
             select! {
@@ -495,6 +509,10 @@ impl Supervisor {
                     self.shutdown().await?;
                     break;
                 }
+
+                Some(reply_tx) = health_requests.recv() => {
+                    let _ = reply_tx.send(Ok(()));
+                }
             }
         }
 
@@ -503,17 +521,31 @@ impl Supervisor {
 }
 
 #[cfg(target_os = "linux")]
-fn spawn_watchdog_task(duration: Duration) -> JoinHandle<()> {
+fn spawn_watchdog_task(duration: Duration, health_registry: HealthCheckRegistry) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let mut interval = interval(duration.div_f32(2.0));
+        let ping_interval = duration.div_f32(2.0);
+        let mut interval = interval(ping_interval);
         tracing::debug!(
             "Starting systemd watchdog task, pinging every {} milliseconds",
-            duration.div_f32(2.0).as_millis()
+            ping_interval.as_millis()
         );
         loop {
-            interval.tick().await;
-            if let Err(err) = sd_notify::notify(&[sd_notify::NotifyState::Watchdog]) {
-                tracing::warn!("Failed to notify systemd watchdog: {}", err);
+            let (_, health_result) =
+                tokio::join!(interval.tick(), health_registry.request_pets(ping_interval));
+
+            match health_result {
+                Ok(()) => {
+                    tracing::trace!("Health check passed, petting the systemd watchdog");
+                    if let Err(err) = sd_notify::notify(&[sd_notify::NotifyState::Watchdog]) {
+                        tracing::warn!("Failed to notify systemd watchdog: {}", err);
+                    }
+                }
+                Err(name) => {
+                    tracing::error!(
+                        "Health check '{}' failed, not petting the watchdog this round",
+                        name
+                    );
+                }
             }
         }
     })
@@ -523,24 +555,36 @@ fn spawn_watchdog_task(duration: Duration) -> JoinHandle<()> {
 fn spawn_status_notifier_task(
     session_semaphore: Arc<Semaphore>,
     total_requests_handled: Arc<AtomicU64>,
+    health_registry: HealthCheckRegistry,
 ) -> JoinHandle<()> {
     const STATUS_UPDATE_INTERVAL_SECS: Duration = Duration::from_secs(1);
+
+    let mut health_requests = health_registry.add_petter("status_notifier_task");
 
     tokio::spawn(async move {
         let mut interval = interval(STATUS_UPDATE_INTERVAL_SECS);
         loop {
-            interval.tick().await;
-            let count = MAX_CONCURRENT_SESSIONS - session_semaphore.available_permits();
-            let total_requests = total_requests_handled.load(Ordering::Relaxed);
+            select! {
+                biased;
 
-            let message = if count > 0 {
-                format!("Handling {count} connections, {total_requests} requests handled")
-            } else {
-                format!("Waiting for connections, {total_requests} requests handled")
-            };
+                _ = interval.tick() => {
+                    let count = MAX_CONCURRENT_SESSIONS - session_semaphore.available_permits();
+                    let total_requests = total_requests_handled.load(Ordering::Relaxed);
 
-            if let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Status(message.as_str())]) {
-                tracing::warn!("Failed to send systemd status notification: {}", e);
+                    let message = if count > 0 {
+                        format!("Handling {count} connections, {total_requests} requests handled")
+                    } else {
+                        format!("Waiting for connections, {total_requests} requests handled")
+                    };
+
+                    if let Err(e) = sd_notify::notify(&[sd_notify::NotifyState::Status(message.as_str())]) {
+                        tracing::warn!("Failed to send systemd status notification: {}", e);
+                    }
+                }
+
+                Some(reply_tx) = health_requests.recv() => {
+                    let _ = reply_tx.send(Ok(()));
+                }
             }
         }
     })
@@ -622,7 +666,10 @@ async fn create_db_connection_pool(config: &MysqlConfig) -> anyhow::Result<MySql
 fn spawn_signal_handler_task(
     reload_sender: broadcast::Sender<ReloadEvent>,
     shutdown_token: CancellationToken,
+    health_registry: HealthCheckRegistry,
 ) -> JoinHandle<()> {
+    let mut health_requests = health_registry.add_petter("signal_handler_task");
+
     tokio::spawn(async move {
         let mut sighup_stream =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
@@ -650,11 +697,15 @@ fn spawn_signal_handler_task(
                     shutdown_token.cancel();
                     break;
                 }
+                Some(reply_tx) = health_requests.recv() => {
+                    let _ = reply_tx.send(Ok(()));
+                }
             }
         }
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn listener_task(
     listener: Arc<RwLock<TokioUnixListener>>,
     session_semaphore: Arc<Semaphore>,
@@ -663,12 +714,14 @@ async fn listener_task(
     mut supervisor_message_receiver: broadcast::Receiver<SupervisorMessage>,
     db_is_mariadb: Arc<AtomicBool>,
     group_denylist: Arc<ArcSwap<GroupDenylist>>,
+    health_registry: HealthCheckRegistry,
 ) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     sd_notify::notify(&[sd_notify::NotifyState::Ready])?;
 
     let connection_counter = AtomicU64::new(0);
     let mut task_tracker: JoinSet<()> = JoinSet::new();
+    let mut health_requests = health_registry.add_petter("listener_task");
 
     loop {
         tokio::select! {
@@ -758,6 +811,10 @@ async fn listener_task(
                 if let Err(e) = result {
                     tracing::error!("A connection handler task panicked: {}", e);
                 }
+            }
+
+            Some(reply_tx) = health_requests.recv() => {
+                let _ = reply_tx.send(Ok(()));
             }
         }
     }
