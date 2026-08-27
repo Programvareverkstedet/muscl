@@ -8,7 +8,7 @@ Type=notify
 ExecStart=/usr/bin/muscl-server --systemd --disable-landlock socket-activate
 ExecReload=/usr/bin/kill -HUP $MAINPID
 
-WatchdogSec=3min
+WatchdogSec=30s
 Restart=always
 RestartSec=10s
 
