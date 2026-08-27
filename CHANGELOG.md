@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.1.1
+
+Patch release, mostly with bug fixes and stability improvements for the internal supervisor
+
+### Bug fixes
+
+- Fix a bug where new connections were still being accepted on reloading, restarting or stopping the server.
+- Fix a bug where reloading a configuration with bad mysql config at the same time as moving the binding socket would cause the socket changes to be left unapplied.
+- Fix a bug where the internal supervisor would cause an infinite reload loop upon receiving a signal to shut down.
+- Fix a bug where enabling landlock would deny access to the group denylist file.
+- Fix a bug where group names were not being properly escaped when generating regexes.
+
+### Stability improvements
+
+- Graceful handling of mysql connection shutdown on reloads.
+- Replace quite a few locks with alternative atomics to reduce lock contention and risk of deadlocks.
+- Don't reload the group denylist if the file content is unchanged from last time.
+- Regexes generated from wildcards in group denylists are now cached for better performance.
+- Handle receiving a shutdown signal amidst a reload or restart more gracefully.
+  This will abort the reload/restart and make the server go right into shutdown mode instead.
+- More accurate escape quoting for SQL identifiers and values.
+- Hook up the internal watchdog to various long-running subsystems to catch more potential hangs.
+- Decrease the systemd watchdog timeout from 3 minutes to 30 seconds.
+- Add some lenient max boundaries for memory, file descriptors and threads to the systemd unit.
+  These can be adjusted if you have an unusually large deployment, but should be sufficient for most use cases.
+
+### Other
+
+- Create a request counter for the internal supervisor. This is being logged to the systemd status line.
+- SIGINT is now handled as a signal to shut down by the server alongside SIGTERM.
+
 ## v1.1.0
 
 Medium sized release with a new features
