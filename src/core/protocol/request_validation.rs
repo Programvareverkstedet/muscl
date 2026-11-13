@@ -267,15 +267,59 @@ pub fn validate_name(name: &str) -> Result<(), NameValidationError> {
     }
 }
 
+/// Retrieves the groups of a user, filtering out any groups
+/// that are present in the provided denylist.
+pub fn get_user_filtered_groups(user: &UnixUser, group_denylist: &GroupDenylist) -> Vec<String> {
+    user.groups
+        .iter()
+        .cloned()
+        .filter_map(|group_name| {
+            match Group::from_name(&group_name) {
+                Ok(Some(group)) => {
+                    if group_denylist.matches(&group) {
+                        None
+                    } else {
+                        Some(group.name)
+                    }
+                }
+                // NOTE: allow non-existing groups to pass through the filter
+                _ => Some(group_name),
+            }
+        })
+        .collect()
+}
+
+/// Check whether the unix user is allowed to manage the item with the given name,
+/// by checking the name against the user's username and the groups that are not
+/// present in the group denylist.
+///
+/// The username is always allowed as a prefix, even if a group with the same name
+/// is present in the denylist.
 pub fn validate_authorization_by_unix_user(
     name: &str,
     user: &UnixUser,
+    group_denylist: &GroupDenylist,
 ) -> Result<(), AuthorizationError> {
-    let prefixes = std::iter::once(user.username.clone())
-        .chain(user.groups.iter().cloned())
+    let allowed_prefixes = std::iter::once(user.username.clone())
+        .chain(get_user_filtered_groups(user, group_denylist))
         .collect::<Vec<String>>();
 
-    validate_authorization_by_prefixes(name, &prefixes)
+    match validate_authorization_by_prefixes(name, &allowed_prefixes) {
+        Err(AuthorizationError::IllegalPrefix) => {
+            // Report a more specific error if the name would have been allowed,
+            // were it not for the group denylist.
+            let all_prefixes = std::iter::once(user.username.clone())
+                .chain(user.groups.iter().cloned())
+                .collect::<Vec<String>>();
+
+            if validate_authorization_by_prefixes(name, &all_prefixes).is_ok() {
+                Err(AuthorizationError::DenylistError)
+            } else {
+                Err(AuthorizationError::IllegalPrefix)
+            }
+        }
+        result => result,
+    }
 }
 
 /// Core logic for validating the ownership of a database name.
@@ -302,27 +346,6 @@ pub fn validate_authorization_by_prefixes(
     Ok(())
 }
 
-pub fn validate_authorization_by_group_denylist(
-    name: &str,
-    user: &UnixUser,
-    group_denylist: &GroupDenylist,
-) -> Result<(), AuthorizationError> {
-    // NOTE: if the username matches, we allow it regardless of denylist
-    if user.username == name {
-        return Ok(());
-    }
-
-    let user_group = Group::from_name(name).ok().flatten();
-
-    if let Some(group) = user_group
-        && group_denylist.matches(&group)
-    {
-        Err(AuthorizationError::DenylistError)
-    } else {
-        Ok(())
-    }
-}
-
 pub fn validate_db_or_user_request(
     db_or_user: &DbOrUser,
     unix_user: &UnixUser,
@@ -330,10 +353,7 @@ pub fn validate_db_or_user_request(
 ) -> Result<(), ValidationError> {
     validate_name(db_or_user.name()).map_err(ValidationError::NameValidationError)?;
 
-    validate_authorization_by_unix_user(db_or_user.name(), unix_user)
-        .map_err(ValidationError::AuthorizationError)?;
-
-    validate_authorization_by_group_denylist(db_or_user.name(), unix_user, group_denylist)
+    validate_authorization_by_unix_user(db_or_user.name(), unix_user, group_denylist)
         .map_err(ValidationError::AuthorizationError)?;
 
     Ok(())
@@ -432,5 +452,42 @@ mod tests {
             validate_authorization_by_prefixes("nonexistent_testdb", &prefixes),
             Err(AuthorizationError::IllegalPrefix)
         );
+    }
+
+    #[test]
+    fn test_validate_db_or_user_request_respects_group_denylist() {
+        // NOTE: the root group (gid 0) is assumed to exist on the test system.
+        let mut group_denylist = GroupDenylist::new();
+        group_denylist.insert_gid(0);
+
+        let user = UnixUser {
+            username: "alice".to_owned(),
+            groups: vec!["root".to_owned(), "muscl-nonexistent-group".to_owned()],
+        };
+
+        let validate = |name: &str, user: &UnixUser| {
+            validate_db_or_user_request(&DbOrUser::Database(name.into()), user, &group_denylist)
+        };
+
+        assert_eq!(validate("alice_db", &user), Ok(()));
+        assert_eq!(validate("muscl-nonexistent-group_db", &user), Ok(()));
+        assert_eq!(
+            validate("root_db", &user),
+            Err(ValidationError::AuthorizationError(
+                AuthorizationError::DenylistError
+            ))
+        );
+        assert_eq!(
+            validate("other_db", &user),
+            Err(ValidationError::AuthorizationError(
+                AuthorizationError::IllegalPrefix
+            ))
+        );
+
+        let root_user = UnixUser {
+            username: "root".to_owned(),
+            groups: vec!["root".to_owned()],
+        };
+        assert_eq!(validate("root_db", &root_user), Ok(()));
     }
 }

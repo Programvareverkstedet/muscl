@@ -15,12 +15,12 @@ use crate::{
         common::UnixUser,
         protocol::{
             PasswordSource, Request, Response, ServerToClientMessageStream, SetPasswordError,
-            create_server_to_client_message_stream, request_validation::GroupDenylist,
+            create_server_to_client_message_stream,
+            request_validation::{GroupDenylist, get_user_filtered_groups},
         },
     },
     server::{
         authorization::check_authorization,
-        common::get_user_filtered_groups,
         sql::{
             database_operations::{
                 complete_database_name, create_databases, drop_databases,

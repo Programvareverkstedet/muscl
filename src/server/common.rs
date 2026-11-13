@@ -1,28 +1,8 @@
-use crate::core::{common::UnixUser, protocol::request_validation::GroupDenylist};
-use nix::unistd::Group;
+use crate::core::{
+    common::UnixUser,
+    protocol::request_validation::{GroupDenylist, get_user_filtered_groups},
+};
 use sqlx::prelude::*;
-
-/// This function retrieves the groups of a user, filtering out any groups
-/// that are present in the provided denylist.
-pub fn get_user_filtered_groups(user: &UnixUser, group_denylist: &GroupDenylist) -> Vec<String> {
-    user.groups
-        .iter()
-        .cloned()
-        .filter_map(|group_name| {
-            match Group::from_name(&group_name) {
-                Ok(Some(group)) => {
-                    if group_denylist.matches(&group) {
-                        None
-                    } else {
-                        Some(group.name)
-                    }
-                }
-                // NOTE: allow non-existing groups to pass through the filter
-                _ => Some(group_name),
-            }
-        })
-        .collect()
-}
 
 /// This function creates a regex that matches items (users, databases)
 /// that belong to the user or any of the user's groups.
