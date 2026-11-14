@@ -6,18 +6,21 @@ use sqlx::prelude::*;
 
 /// This function creates a regex that matches items (users, databases)
 /// that belong to the user or any of the user's groups.
+///
+/// The regex is anchored at both ends, since both `MySQL`'s `REGEXP` operator and
+/// the `regex` crate will otherwise match anywhere within the string.
 pub fn create_user_group_matching_regex(user: &UnixUser, group_denylist: &GroupDenylist) -> String {
     let escaped_username = regex::escape(&user.username);
     let filtered_groups = get_user_filtered_groups(user, group_denylist);
     if filtered_groups.is_empty() {
-        format!("{escaped_username}_.+")
+        format!("^{escaped_username}_.+$")
     } else {
         let escaped_groups = filtered_groups
             .iter()
             .map(|group| regex::escape(group))
             .collect::<Vec<_>>()
             .join("|");
-        format!("({escaped_username}|{escaped_groups})_.+")
+        format!("^({escaped_username}|{escaped_groups})_.+$")
     }
 }
 
@@ -58,5 +61,24 @@ mod tests {
         assert!(!re.is_match("other_something"));
         assert!(!re.is_match("user"));
         assert!(!re.is_match("usersomething"));
+
+        assert!(!re.is_match("other_user_something"));
+        assert!(!re.is_match("other_group1_something"));
+        assert!(!re.is_match("xuser_something"));
+    }
+
+    #[test]
+    fn test_create_user_group_matching_regex_without_groups() {
+        let user = UnixUser {
+            username: "user".to_owned(),
+            groups: vec![],
+        };
+
+        let regex = create_user_group_matching_regex(&user, &GroupDenylist::new());
+        let re = Regex::new(&regex).unwrap();
+
+        assert!(re.is_match("user_something"));
+        assert!(!re.is_match("other_user_something"));
+        assert!(!re.is_match("user"));
     }
 }
