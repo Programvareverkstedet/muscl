@@ -5,7 +5,10 @@ use std::{
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use sqlx::{ConnectOptions, mysql::MySqlConnectOptions};
+use sqlx::{
+    ConnectOptions, Executor,
+    mysql::{MySqlConnectOptions, MySqlPoolOptions},
+};
 
 pub const DEFAULT_PORT: u16 = 3306;
 fn default_mysql_port() -> u16 {
@@ -63,6 +66,18 @@ impl MysqlConfig {
         }
 
         Ok(options)
+    }
+
+    /// Pool options that remove `NO_BACKSLASH_ESCAPES` from the `sql_mode`,
+    /// which our SQL string literals depend on.
+    pub fn mysql_pool_options() -> MySqlPoolOptions {
+        // NOTE: this statement must not contain backslashes.
+        const SQL: &str = "SET SESSION sql_mode = (SELECT TRIM(BOTH ',' FROM \
+            REPLACE(CONCAT(',', @@SESSION.sql_mode, ','), ',NO_BACKSLASH_ESCAPES,', ',')))";
+
+        MySqlPoolOptions::new().after_connect(|connection, _| {
+            Box::pin(async move { connection.execute(SQL).await.map(|_| ()) })
+        })
     }
 
     pub fn log_connection_notice(&self) {

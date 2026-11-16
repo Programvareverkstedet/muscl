@@ -12,7 +12,6 @@ use nix::{
     libc::{EXIT_SUCCESS, exit},
     unistd::{AccessFlags, access},
 };
-use sqlx::mysql::MySqlPoolOptions;
 use std::os::unix::net::UnixStream as StdUnixStream;
 use tokio::net::UnixStream as TokioUnixStream;
 use tracing_subscriber::prelude::*;
@@ -271,7 +270,7 @@ async fn construct_single_connection_mysql_pool(
 ) -> anyhow::Result<sqlx::MySqlPool> {
     let mysql_config = config.as_mysql_connect_options()?;
 
-    let pool_opts = MySqlPoolOptions::new()
+    let pool_opts = MysqlConfig::mysql_pool_options()
         .max_connections(1)
         .min_connections(1);
 

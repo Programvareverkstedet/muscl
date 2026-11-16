@@ -644,7 +644,7 @@ async fn create_db_connection_pool(config: &MysqlConfig) -> anyhow::Result<MySql
 
     let pool = match tokio::time::timeout(
         Duration::from_secs(config.timeout),
-        MySqlPool::connect_with(mysql_config),
+        MysqlConfig::mysql_pool_options().connect_with(mysql_config),
     )
     .await
     {
