@@ -34,7 +34,7 @@ jobs:
         os: [
           debian-trixie,
           debian-bookworm,
-          # ubuntu-resolute,
+          ubuntu-resolute,
           ubuntu-noble,
           ubuntu-jammy,
         ]
