@@ -26,7 +26,7 @@ use crate::{
     },
     server::{
         common::{create_user_group_matching_regex, try_get_with_binary_fallback},
-        sql::quote_literal,
+        sql::{quote_literal, unescape_db_name_wildcards_sql},
     },
 };
 
@@ -577,14 +577,17 @@ pub async fn set_databases_where_user_has_privileges(
         format!(" LIMIT {MAX_SHOW_USER_RELATED_ITEMS}")
     };
 
+    // NOTE: the values in `mysql.db` might be escaped, see `escape_db_name_wildcards`
+    let unescaped_db = unescape_db_name_wildcards_sql("`Db`");
+
     let statement = AssertSqlSafe(formatdoc!(
         r"
             SELECT
-                `Db` AS `database`,
+                {unescaped_db} AS `database`,
                 CAST(COUNT(*) OVER() AS UNSIGNED) AS `database_count`
             FROM `db`
             WHERE `User` = ?  AND `Host` = '%' AND ({})
-            ORDER BY `Db`{limit_clause}
+            ORDER BY `database`{limit_clause}
         ",
         DATABASE_PRIVILEGE_FIELDS
             .iter()

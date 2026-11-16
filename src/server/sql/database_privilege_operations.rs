@@ -38,8 +38,9 @@ use crate::{
     server::{
         common::{create_user_group_matching_regex, try_get_with_binary_fallback},
         sql::{
-            database_operations::unsafe_database_exists, quote_identifier,
-            user_operations::unsafe_user_exists,
+            database_operations::unsafe_database_exists, db_column_uses_wildcards,
+            escape_db_name_wildcards, quote_identifier, unescape_db_name_wildcards,
+            unescape_db_name_wildcards_sql, user_operations::unsafe_user_exists,
         },
     },
 };
@@ -61,7 +62,8 @@ fn get_mysql_row_priv_field(row: &MySqlRow, position: usize) -> Result<bool, sql
 impl FromRow<'_, MySqlRow> for DatabasePrivilegeRow {
     fn from_row(row: &MySqlRow) -> Result<Self, sqlx::Error> {
         Ok(Self {
-            db: try_get_with_binary_fallback(row, "Db")?.into(),
+            // NOTE: the value might be escaped, see `escape_db_name_wildcards`
+            db: unescape_db_name_wildcards(&try_get_with_binary_fallback(row, "Db")?).into(),
             user: try_get_with_binary_fallback(row, "User")?.into(),
             select_priv: get_mysql_row_priv_field(row, 2)?,
             insert_priv: get_mysql_row_priv_field(row, 3)?,
@@ -88,7 +90,9 @@ async fn unsafe_get_database_privileges(
     connection: &mut MySqlConnection,
 ) -> Result<Vec<DatabasePrivilegeRow>, sqlx::Error> {
     let statement = AssertSqlSafe(format!(
-        "SELECT {} FROM `db` WHERE `Db` = ?",
+        // NOTE: match both the escaped and legacy unescaped forms of the database name,
+        //       see `escape_db_name_wildcards`
+        "SELECT {} FROM `db` WHERE `Db` IN (?, ?)",
         DATABASE_PRIVILEGE_FIELDS
             .iter()
             .map(|field| quote_identifier(field))
@@ -96,6 +100,7 @@ async fn unsafe_get_database_privileges(
     ));
     let result = sqlx::query_as::<_, DatabasePrivilegeRow>(statement)
         .bind(database_name)
+        .bind(escape_db_name_wildcards(database_name))
         .fetch_all(connection)
         .await;
 
@@ -118,7 +123,9 @@ pub async fn unsafe_get_database_privileges_for_db_user_pair(
     connection: &mut MySqlConnection,
 ) -> Result<Option<DatabasePrivilegeRow>, sqlx::Error> {
     let statement = AssertSqlSafe(format!(
-        "SELECT {} FROM `db` WHERE `Db` = ? AND `User` = ? AND `Host` = '%'",
+        // NOTE: match both the escaped and legacy unescaped forms of the database name,
+        //       see `escape_db_name_wildcards`
+        "SELECT {} FROM `db` WHERE `Db` IN (?, ?) AND `User` = ? AND `Host` = '%'",
         DATABASE_PRIVILEGE_FIELDS
             .iter()
             .map(|field| quote_identifier(field))
@@ -126,6 +133,7 @@ pub async fn unsafe_get_database_privileges_for_db_user_pair(
     ));
     let result = sqlx::query_as::<_, DatabasePrivilegeRow>(statement)
         .bind(database_name.as_str())
+        .bind(escape_db_name_wildcards(database_name.as_str()))
         .bind(user_name.as_str())
         .fetch_optional(connection)
         .await;
@@ -197,7 +205,7 @@ pub async fn get_databases_privilege_data(
 fn get_all_db_privs_query() -> AssertSqlSafe<String> {
     AssertSqlSafe(format!(
         indoc! {r"
-            SELECT {} FROM `db` WHERE `db` IN
+            SELECT {} FROM `db` WHERE {} IN
             (SELECT DISTINCT CAST(`SCHEMA_NAME` AS CHAR(64)) AS `database`
               FROM `information_schema`.`SCHEMATA`
               WHERE `SCHEMA_NAME` NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
@@ -207,6 +215,7 @@ fn get_all_db_privs_query() -> AssertSqlSafe<String> {
             .iter()
             .map(|field| quote_identifier(field))
             .join(","),
+        unescape_db_name_wildcards_sql("`Db`"),
     ))
 }
 
@@ -234,7 +243,17 @@ pub async fn get_all_database_privileges(
 async fn unsafe_apply_privilege_diff(
     database_privilege_diff: &DatabasePrivilegesDiff,
     connection: &mut MySqlConnection,
+    escape_wildcards: bool,
 ) -> Result<(), sqlx::Error> {
+    let database_name = database_privilege_diff.get_database_name().as_str();
+
+    // The form of the database name that should be written to `mysql.db`
+    let stored_database_name = if escape_wildcards {
+        escape_db_name_wildcards(database_name)
+    } else {
+        database_name.to_owned()
+    };
+
     let result = match database_privilege_diff {
         DatabasePrivilegesDiff::New(p) => {
             let tables = DATABASE_PRIVILEGE_FIELDS
@@ -250,7 +269,7 @@ async fn unsafe_apply_privilege_diff(
                 "INSERT INTO `db` ({tables}) VALUES ({question_marks})"
             ));
             sqlx::query(statement)
-                .bind(p.db.to_string())
+                .bind(&stored_database_name)
                 .bind(p.user.to_string())
                 .bind(yn(p.select_priv))
                 .bind(yn(p.insert_priv))
@@ -291,10 +310,13 @@ async fn unsafe_apply_privilege_diff(
                 }
             }
 
+            // NOTE: this also migrates legacy rows with unescaped database names
+            //       to the escaped form, see `escape_db_name_wildcards`
             let statement = AssertSqlSafe(format!(
-                "UPDATE `db` SET {changes} WHERE `Db` = ? AND `User` = ? AND `Host` = ?"
+                "UPDATE `db` SET `Db` = ?, {changes} WHERE `Db` IN (?, ?) AND `User` = ? AND `Host` = ?"
             ));
             sqlx::query(statement)
+                .bind(&stored_database_name)
                 .bind(p.select_priv.map(change_to_yn))
                 .bind(p.insert_priv.map(change_to_yn))
                 .bind(p.update_priv.map(change_to_yn))
@@ -309,7 +331,8 @@ async fn unsafe_apply_privilege_diff(
                 .bind(p.create_view_priv.map(change_to_yn))
                 .bind(p.show_view_priv.map(change_to_yn))
                 .bind(p.trigger_priv.map(change_to_yn))
-                .bind(p.db.to_string())
+                .bind(database_name)
+                .bind(escape_db_name_wildcards(database_name))
                 .bind(p.user.to_string())
                 .bind("%")
                 .execute(connection)
@@ -317,8 +340,11 @@ async fn unsafe_apply_privilege_diff(
                 .map(|_| ())
         }
         DatabasePrivilegesDiff::Deleted(p) => {
-            sqlx::query("DELETE FROM `db` WHERE `Db` = ? AND `User` = ? AND `Host` = ?")
-                .bind(p.db.to_string())
+            // NOTE: match both the escaped and legacy unescaped forms of the database name,
+            //       see `escape_db_name_wildcards`
+            sqlx::query("DELETE FROM `db` WHERE `Db` IN (?, ?) AND `User` = ? AND `Host` = ?")
+                .bind(database_name)
+                .bind(escape_db_name_wildcards(database_name))
                 .bind(p.user.to_string())
                 .bind("%")
                 .execute(connection)
@@ -424,10 +450,12 @@ pub async fn apply_privilege_diffs(
     database_privilege_diffs: &BTreeSet<DatabasePrivilegesDiff>,
     unix_user: &UnixUser,
     connection: &mut MySqlConnection,
-    _db_is_mariadb: bool,
+    db_is_mariadb: bool,
     group_denylist: &GroupDenylist,
 ) -> ModifyPrivilegesResponse {
     let mut results: BTreeMap<(MySQLDatabase, MySQLUser), _> = BTreeMap::new();
+
+    let escape_wildcards = db_column_uses_wildcards(connection, db_is_mariadb).await;
 
     for diff in database_privilege_diffs {
         let key = (
@@ -494,7 +522,7 @@ pub async fn apply_privilege_diffs(
             continue;
         }
 
-        let result = unsafe_apply_privilege_diff(diff, connection)
+        let result = unsafe_apply_privilege_diff(diff, connection, escape_wildcards)
             .await
             .map_err(|e| ModifyDatabasePrivilegesError::MySqlError(e.to_string()));
 

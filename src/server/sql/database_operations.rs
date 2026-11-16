@@ -21,7 +21,10 @@ use crate::{
             ListDatabasesResponse,
         },
     },
-    server::{common::create_user_group_matching_regex, sql::quote_identifier},
+    server::{
+        common::create_user_group_matching_regex,
+        sql::{quote_identifier, unescape_db_name_wildcards_sql},
+    },
 };
 
 const MAX_SHOW_DB_RELATED_ITEMS: usize = 5;
@@ -255,6 +258,9 @@ impl FromRow<'_, sqlx::mysql::MySqlRow> for DatabaseRow {
 }
 
 fn list_database_query(include_all_tables_and_users: bool) -> AssertSqlSafe<String> {
+    // NOTE: the values in `mysql.db` might be escaped, see `escape_db_name_wildcards`
+    let unescaped_db = unescape_db_name_wildcards_sql("DB");
+
     let limit_clause = if include_all_tables_and_users {
         "".to_string()
     } else {
@@ -296,10 +302,10 @@ fn list_database_query(include_all_tables_and_users: bool) -> AssertSqlSafe<Stri
                     GROUP_CONCAT(x.User ORDER BY x.User SEPARATOR ',') AS users
                 FROM (
                     SELECT DISTINCT
-                        DB,
+                        {unescaped_db} AS DB,
                         User
                     FROM mysql.db
-                    WHERE DB = ?
+                    WHERE {unescaped_db} = ?
                     ORDER BY User{limit_clause}
                 ) x
                 GROUP BY x.DB
@@ -319,11 +325,11 @@ fn list_database_query(include_all_tables_and_users: bool) -> AssertSqlSafe<Stri
 
             LEFT JOIN (
                 SELECT
-                    DB,
+                    {unescaped_db} AS DB,
                     COUNT(DISTINCT User) AS user_count
                 FROM mysql.db
-                WHERE DB = ?
-                GROUP BY DB
+                WHERE {unescaped_db} = ?
+                GROUP BY {unescaped_db}
             ) uc
                 ON uc.DB = s.SCHEMA_NAME
 
@@ -388,6 +394,9 @@ pub async fn list_databases(
 }
 
 fn list_all_databases_for_user_query(include_all_tables_and_users: bool) -> AssertSqlSafe<String> {
+    // NOTE: the values in `mysql.db` might be escaped, see `escape_db_name_wildcards`
+    let unescaped_db = unescape_db_name_wildcards_sql("DB");
+
     let row_limit_clause = if include_all_tables_and_users {
         String::new()
     } else {
@@ -434,9 +443,9 @@ fn list_all_databases_for_user_query(include_all_tables_and_users: bool) -> Asse
                         User,
                         ROW_NUMBER() OVER (PARTITION BY DB ORDER BY User) AS row_num
                     FROM (
-                        SELECT DISTINCT DB, User
+                        SELECT DISTINCT {unescaped_db} AS DB, User
                         FROM mysql.db
-                        WHERE DB REGEXP ?
+                        WHERE {unescaped_db} REGEXP ?
                     ) d
                 ) x
                 {row_limit_clause}
@@ -457,11 +466,11 @@ fn list_all_databases_for_user_query(include_all_tables_and_users: bool) -> Asse
 
             LEFT JOIN (
                 SELECT
-                    DB,
+                    {unescaped_db} AS DB,
                     COUNT(DISTINCT User) AS user_count
                 FROM mysql.db
-                WHERE DB REGEXP ?
-                GROUP BY DB
+                WHERE {unescaped_db} REGEXP ?
+                GROUP BY {unescaped_db}
             ) uc
                 ON uc.DB = s.SCHEMA_NAME
 
